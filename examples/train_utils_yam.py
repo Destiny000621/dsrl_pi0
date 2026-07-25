@@ -52,6 +52,9 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
     total_env_steps = 0
     total_num_traj = 0
     episode_rewards = []  # SubRL parity: rolling success_rate_10 window
+    # A restored SAC actor should act (and skip the 5000-step warmup block) from
+    # the first episode; the i==0 N(0,1) phase is for FRESH runs only.
+    fresh_start = getattr(variant, 'restore_path', '') == ''
     wandb_logger.log({'num_online_samples': 0}, step=i)
     wandb_logger.log({'num_online_trajs': 0}, step=i)
     wandb_logger.log({'env_steps': 0}, step=i)
@@ -79,12 +82,14 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
                 parity['success_rate_10'] = float(np.mean(episode_rewards[-10:]))
             wandb_logger.log(parity, step=i)
 
-            if i == 0:
+            if i == 0 and fresh_start:
                 num_gradsteps = 5000
             else:
                 num_gradsteps = len(traj["rewards"]) * variant.multi_grad_step
             print(f'num_gradsteps: {num_gradsteps}')
-            if total_num_traj >= variant.num_initial_traj_collect:
+            # len() guard: an empty first trajectory (aborted episode) would make
+            # ReplayBuffer.sample crash on randint(0, 0).
+            if total_num_traj >= variant.num_initial_traj_collect and len(online_replay_buffer) > 0:
                 for _ in range(num_gradsteps):
 
                     batch = next(replay_buffer_iterator)
@@ -110,8 +115,14 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
                         wandb_logger.log({'num_online_trajs': total_num_traj}, step=i)
                         wandb_logger.log({'env_steps': total_env_steps}, step=i)
                         if hasattr(agent, 'perform_eval'):
-                            agent.perform_eval(variant, i, wandb_logger, replay_buffer,
-                                               replay_buffer_iterator, eval_env)
+                            try:
+                                agent.perform_eval(variant, i, wandb_logger, replay_buffer,
+                                                   replay_buffer_iterator, eval_env)
+                            except Exception as e:
+                                # Upstream's Q-visualization asserts 3-channel pixels;
+                                # ours are 9-channel (3 cams). A viz failure must never
+                                # kill a multi-hour robot run.
+                                print(f'perform_eval skipped: {e}')
 
                     if variant.checkpoint_interval != -1:
                         if i % variant.checkpoint_interval == 0:
@@ -124,6 +135,9 @@ def add_online_data_to_buffer(variant, traj, online_replay_buffer):
     discount_horizon = variant.query_freq
     actions = np.array(traj['actions'])
     episode_len = len(actions)
+    if episode_len == 0:
+        print('Empty trajectory — skipping buffer add.')
+        return
     rewards = np.array(traj['rewards'])
     masks = np.array(traj['masks'])
 
@@ -267,6 +281,7 @@ def collect_traj(variant, agent, env, i, agent_dp=None, wandb_logger=None, traj_
 
         action = None
         t = 0
+        env_steps_executed = 0
         try:
             for t in tqdm(range(max_timesteps)):
                 # 'q' aborts the episode early; the outcome is still labeled below.
@@ -284,8 +299,9 @@ def collect_traj(variant, agent, env, i, agent_dp=None, wandb_logger=None, traj_
                     rng, key = jax.random.split(rng)
                     obs_dict = get_sac_obs(variant, curr_obs, agent_dp, request_data)
 
-                    if i == 0:
-                        # Base-policy phase: ONE N(0,1) row tiled across the horizon —
+                    if i == 0 and not getattr(variant, 'restore_path', ''):
+                        # Base-policy phase (fresh runs only — a restored actor acts
+                        # immediately): ONE N(0,1) row tiled across the horizon —
                         # the same single-row-tiled structure the SAC produces, so the
                         # first 5000-grad-step block trains on in-distribution actions.
                         noise_row = jax.random.normal(key, (1, 1, noise_dim))
@@ -303,6 +319,7 @@ def collect_traj(variant, agent, env, i, agent_dp=None, wandb_logger=None, traj_
                 # gripper clip, hold sentinels) lives in YamEnv.step (B3). No
                 # client-side sleep — the env paces at control_hz (B5).
                 env.step(np.asarray(action[t % query_frequency]))
+                env_steps_executed += 1
         except Exception:
             # A transient hardware/server failure must not kill a multi-hour run:
             # end the episode here, let the operator label it, keep training.
@@ -331,20 +348,6 @@ def collect_traj(variant, agent, env, i, agent_dp=None, wandb_logger=None, traj_
         print('Rollout Done')
 
     finally:
-        # Upstream DSRL reward convention: -1 per decision, 0 at the absorbing
-        # success step (mask 0); failure/timeout is non-terminal (mask 1).
-        query_steps = len(action_list)
-        if query_steps > 0:
-            if is_success:
-                rewards = np.concatenate([-np.ones(query_steps - 1), [0]])
-                masks = np.concatenate([np.ones(query_steps - 1), [0]])
-            else:
-                rewards = -np.ones(query_steps)
-                masks = np.ones(query_steps)
-        else:
-            rewards = np.zeros(0)
-            masks = np.zeros(0)
-
         if wandb_logger is not None:
             wandb_logger.log({'is_success': int(is_success)}, step=i)
             wandb_logger.log({'total_num_traj': traj_id}, step=i)
@@ -367,9 +370,25 @@ def collect_traj(variant, agent, env, i, agent_dp=None, wandb_logger=None, traj_
         # The episode died before the terminal obs was appended (exception mid-
         # rollout). Trim to a consistent (obs, action, next_obs) set.
         n = max(len(obs_list) - 1, 0)
+        print(f"Trimming trajectory from {len(action_list)} to {n} decisions (terminal obs missing).")
         action_list = action_list[:n]
-        rewards = rewards[:n]
-        masks = masks[:n]
+
+    # Labels are built from the FINAL decision count, AFTER the trim — slicing
+    # precomputed labels would delete exactly the reward-0/mask-0 success row
+    # and silently store a successful episode as a non-terminal failure.
+    # Upstream DSRL convention: -1 per decision, 0 at the absorbing success
+    # step (mask 0); failure/timeout is non-terminal (mask 1).
+    query_steps = len(action_list)
+    if query_steps > 0:
+        if is_success:
+            rewards = np.concatenate([-np.ones(query_steps - 1), [0]])
+            masks = np.concatenate([np.ones(query_steps - 1), [0]])
+        else:
+            rewards = -np.ones(query_steps)
+            masks = np.ones(query_steps)
+    else:
+        rewards = np.zeros(0)
+        masks = np.zeros(0)
 
     traj = {
         'observations': obs_list,
@@ -377,7 +396,7 @@ def collect_traj(variant, agent, env, i, agent_dp=None, wandb_logger=None, traj_
         'rewards': rewards,
         'masks': masks,
         'is_success': is_success,
-        'env_steps': t + 1 if query_steps > 0 else 0,
+        'env_steps': env_steps_executed,
     }
 
     return traj

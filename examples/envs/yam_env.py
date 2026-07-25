@@ -233,15 +233,51 @@ class YamEnv:
             threads.append(t)
         for t in threads:
             t.join(timeout=self._reset_duration_s + 2.0)
+            if t.is_alive():
+                print("[YamEnv] safe-move still running after timeout — treating it as failed")
 
-        self._last_cmd = {k: v.copy() for k, v in self._home.items()}
+        # Re-anchor the delta clamp to the MEASURED pose, never the assumed home:
+        # move_joints can fail or hang (exceptions above are swallowed to keep the
+        # run alive), and anchoring to home would let the next step() command a
+        # full-distance jump at full PD gains — the exact violent motion the
+        # clamp exists to prevent. Anchored to the measured pose, a failed
+        # safe-move degrades to a slow delta-limited crawl instead.
         self._pending_obs = None
-        return self.get_observation()
+        obs = self._env.get_obs()
+        for name in self._last_cmd:
+            measured = np.asarray(obs.arms[name].joint_pos, dtype=np.float64).copy()
+            drift = float(np.max(np.abs(measured - self._home[name])))
+            if drift > 0.2:
+                print(f"[YamEnv] '{name}' is {drift:.2f} rad from home after reset — "
+                      "safe-move may have failed; check the arm before continuing")
+            self._last_cmd[name] = measured
+        return self._to_dict(obs)
 
     # ------------------------------------------------------------------ misc
 
     def close(self) -> None:
         from limb.utils.launch_utils import cleanup_processes
+
+        # Ramp the arms down before killing their Portal subprocesses — limb's own
+        # shutdown treats soft_release as mandatory (launch.py _safe_release_robots);
+        # SIGKILLing a holding arm would skip the gravity-comp fade-out.
+        def _release_one(name, robot) -> None:
+            try:
+                robot.soft_release(2.0)
+            except Exception as e:
+                print(f"[YamEnv] soft_release('{name}') failed ({e}); falling back to zero_torque_mode")
+                try:
+                    robot.zero_torque_mode()
+                except Exception:
+                    pass
+
+        threads = []
+        for name, robot in self._robot_dict.items():
+            t = threading.Thread(target=_release_one, args=(name, robot), daemon=True)
+            t.start()
+            threads.append(t)
+        for t in threads:
+            t.join(timeout=5.0)
 
         try:
             self._env.close()

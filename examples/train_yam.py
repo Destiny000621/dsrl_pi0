@@ -99,10 +99,12 @@ def main(variant):
     else:
         expname = create_exp_name(variant.prefix, seed=variant.seed)
 
-    # abspath BEFORE YamEnv chdirs into limb_root — a relative $EXP would
-    # otherwise scatter videos/checkpoints under the limb repo.
+    # abspath BEFORE YamEnv chdirs into limb_root — relative paths would
+    # otherwise silently resolve under the limb repo.
     outputdir = os.path.abspath(os.path.join(os.environ['EXP'], expname))
     variant.outputdir = outputdir
+    if variant.restore_path:
+        variant.restore_path = os.path.abspath(variant.restore_path)
     if not os.path.exists(outputdir):
         os.makedirs(outputdir)
     print('writing to output dir ', outputdir)
