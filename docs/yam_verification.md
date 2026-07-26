@@ -19,28 +19,34 @@ Topology (one machine, the YAM box): pi0.5 SFT serves frozen on `:8111`
 ### 0.1 dsrl venv
 
 ```bash
-conda create -n dsrl_yam python=3.11.11 -y && conda activate dsrl_yam
+# -c conda-forge --override-channels: anaconda's default channels are gated
+# behind a Terms-of-Service acceptance on this machine; conda-forge is not.
+conda create -n dsrl_yam -c conda-forge --override-channels python=3.11.11 -y
+conda activate dsrl_yam
 cd ~/Desktop/research/dsrl_pi0            # branch yam-fulltask
-pip install -e . && pip install -r requirements.txt
+pip install -e . -r requirements.txt      # moviepy/opencv/dm-env/msgpack are in the pins
 pip install "jax[cuda12]==0.5.0"
-pip install moviepy==1.0.3 opencv-python
 
 # openpi-client MUST come from limb/openpi branch dsrl_yam — it has the noise
 # kwarg + dict-returning get_prefix_rep. Do NOT install the nakamotoo submodule's
 # client (tuple-returning get_prefix_rep; incompatible with train_utils_yam).
 pip install -e ~/Desktop/research/limb/openpi/packages/openpi-client
 
-# limb as a library (robot/cameras). If uv/pip fights over pyroki's jax pin,
-# exclude pyroki — the DSRL path never imports it.
-pip install -e ~/Desktop/research/limb
+# limb as a library: --no-deps, then the runtime deps our path actually imports —
+# a full `pip install -e limb` would pull pyroki, whose old jax pin downgrades
+# the env. (The dangling `yourdfpy` warning is limb's viser path; never imported.)
+pip install -e ~/Desktop/research/limb --no-deps
+pip install loguru portal omegaconf tyro pyrealsense2
 
-wandb login    # as destiny0621
+wandb login    # as destiny0621 (needed from stage 3 on, not for stages 1-2)
 ```
 
-Known risk (plan §0.4): jax 0.5.0 cuda12 wheels may lack sm_120 (Blackwell)
-kernels for the 5090. If SAC init crashes with a PTX/`sm_120` error:
-`pip install "jax[cuda12]==0.5.3"` (the jaxrl2 API surface is unchanged), or as
-a last resort run the SAC on CPU (`JAX_PLATFORMS=cpu` — the 128 px CNN is small).
+Verified 2026-07-26 on the YAM box: jax 0.5.0+cuda12 works on the 5090
+(sm_120 JIT-compiles via nvjitlink — the plan §0.4 fallback was not needed).
+The cuFFT/cuDNN "factory already registered" lines at import are TF+JAX
+coexistence noise, harmless. If a future wheel bump crashes with a PTX/sm_120
+error: `pip install "jax[cuda12]==0.5.3"`, or `JAX_PLATFORMS=cpu` as a last
+resort (the 128 px CNN is small).
 
 ### 0.2 pi0.5 serve (separate shell, limb/openpi venv)
 
