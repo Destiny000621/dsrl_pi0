@@ -8,8 +8,9 @@ Differences vs train_utils_real.py, each tied to a plan item:
   B4  obs extraction reads the limb obs dict (3 RGB RealSense cams, 14-D qpos)
       and builds the pi0.5 ALOHA wire obs (CHW uint8 224, cam_high/left/right);
   B5  no client-side sleep — YamEnv/RobotEnv own the 30 Hz clock;
-  B8  get_prefix_rep returns {"prefix_rep": [1, emb]} (pooled z_rl), not the
-      fork's (hidden_state, kv_cache) tuple;
+  B8  get_prefix_rep returns {"prefix_rep": [1, emb]} = the OFFICIAL last-
+      prefix-slot feature (upstream's hidden_state[:, -1, :], sliced server-
+      side), not the fork's full (hidden_state, kv_cache) tuple;
   B10b is_success is initialized before the episode body.
 
 Reward convention is unchanged from upstream DSRL (per-decision -1/0, success =
@@ -223,7 +224,7 @@ def process_images(variant, curr_obs: dict) -> np.ndarray:
 
 
 def get_sac_obs(variant, curr_obs: dict, agent_dp, request_data: dict) -> dict:
-    """SAC obs dict: pixels + [qpos(14), pooled z_rl(emb)] state (plan §1 row 'SAC obs', B8)."""
+    """SAC obs dict: pixels + [qpos(14), last-prefix-slot z(emb)] state (plan §1 'SAC obs', B8)."""
     img_all = process_images(variant, curr_obs)
     prefix_rep = np.asarray(agent_dp.get_prefix_rep(request_data)["prefix_rep"], dtype=np.float32)
     state = np.concatenate([curr_obs["qpos"], prefix_rep.flatten()])

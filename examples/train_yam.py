@@ -133,7 +133,7 @@ def main(variant):
 
     try:
         # B1: measure the SAC state width live — 14-D qpos + the served model's
-        # pooled prefix_rep — never trust a constant. Also warms the server's
+        # served prefix_rep — never trust a constant. Also warms the server's
         # embed JIT before the first episode.
         curr_obs = extract_yam_observation(env.get_observation())
         prefix_rep = np.asarray(

@@ -9,8 +9,8 @@
 #      must be down — serve + SAC don't fit beside them. NEVER kill RustDesk.
 #   2. pi0.5 serve (separate shell, limb/openpi venv). PLAIN serve — do NOT set
 #      SUBRL_RLTOKEN for DSRL runs (it swaps the serve's SubRL embed hook to the
-#      learned token; DSRL's get_prefix_rep is pinned to plain mean-pool either
-#      way, but keep the serves distinguishable):
+#      learned token; DSRL's get_prefix_rep is pinned to the OFFICIAL dsrl_pi0
+#      last-prefix-slot feature either way, but keep the serves distinguishable):
 #        cd ~/Desktop/research/limb/openpi && \
 #        XLA_PYTHON_CLIENT_MEM_FRACTION=0.6 \
 #          uv run python scripts/serve_policy.py --port=8111 policy:checkpoint \

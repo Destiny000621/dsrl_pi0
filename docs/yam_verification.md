@@ -34,8 +34,8 @@ target YAM-abc; where a value below conflicts with this table, this table wins.
 | Episode | 1200 steps / 40 s @30 Hz (matches the SubRL earbud RL budget); operator re-stage ≤10 s |
 
 Serve on YAM-abc (plain — do **not** set `SUBRL_RLTOKEN` for DSRL sessions;
-`get_prefix_rep` is pinned to the plain mean-pool either way, but keep the
-serve variants distinguishable):
+`get_prefix_rep` is pinned to the official dsrl_pi0 last-prefix-slot feature
+either way, but keep the serve variants distinguishable):
 
 ```bash
 cd ~/Desktop/research/limb/openpi     # yam-vial-30fps-v1 + uncommitted YAM-abc configs
