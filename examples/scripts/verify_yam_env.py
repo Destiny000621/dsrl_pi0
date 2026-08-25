@@ -19,7 +19,7 @@ import numpy as np
 from examples.envs.yam_env import YamEnv
 from examples.train_utils_yam import extract_yam_observation, get_pi0_input, process_images
 
-PROMPT = "pick up all vials and place them in the stand"
+PROMPT = "insert the wireless bluetooth earbuds into the charging case"  # YAM-abc earbud SFT
 DELTA = 0.05  # tight clamp for the test — production default is 0.15
 
 
@@ -30,7 +30,7 @@ def qpos_of(env):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--limb_root", default="/home/ssc/Desktop/research/limb")
-    p.add_argument("--limb_config", default="configs/yam_subtask_rl_grasp.yaml")
+    p.add_argument("--limb_config", default="configs/yam_subtask_rl_earbud_insert.yaml")
     args = p.parse_args()
 
     env = YamEnv(limb_root=args.limb_root, config_path=args.limb_config,
@@ -45,7 +45,16 @@ def main():
             assert v.shape == (3, 224, 224) and v.dtype == np.uint8, (k, v.shape, v.dtype)
         variant = types.SimpleNamespace(resize_image=128, num_cameras=3)
         assert process_images(variant, curr).shape == (1, 128, 128, 9, 1)
-        print(f"1. obs pipeline OK: qpos {np.round(curr['qpos'], 3)}")
+        # Station gate (YAM-abc): FlexPoint gripper OBS must already be
+        # normalized to the commanded range (obs far outside gripper_clip means
+        # a units mismatch — vial-era config or uncalibrated grippers).
+        lo, hi = env._gripper_clip
+        for dim in (6, 13):
+            g = float(curr["qpos"][dim])
+            assert lo - 0.1 <= g <= hi + 0.1, \
+                f"gripper obs dim {dim} = {g:.3f} outside [{lo}, {hi}] — station/units mismatch"
+        print(f"1. obs pipeline OK: qpos {np.round(curr['qpos'], 3)} "
+              f"(grippers in [{lo}, {hi}] ✓)")
 
         # 2. reset
         input("2. reset(): both arms will slowly safe-move to the boot pose, grippers open. "
@@ -68,7 +77,7 @@ def main():
         bad = q_before.astype(np.float64).copy()
         bad[0:6] += np.pi
         bad[7:13] -= np.pi
-        bad[6] = 99.0   # gripper: must clip to 2.4
+        bad[6] = 99.0   # gripper: must clip to the station max (YAM-abc FlexPoint: 1.0)
         bad[13] = -9.0  # gripper: must clip to 0.0
         env.step(bad)
         step_delta = np.abs(qpos_of(env) - q_before)[np.r_[0:6, 7:13]]

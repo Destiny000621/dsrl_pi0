@@ -9,8 +9,63 @@ holds. Companion to the port plan
 - `Destiny000621/openpi`, branch **`dsrl_yam`** (serving: noise envelope + `get_prefix_rep`)
 
 Topology (one machine, the YAM box): pi0.5 SFT serves frozen on `:8111`
-(~0.65 of the 5090's VRAM), the DSRL SAC + robot env run in this repo's venv
+(~0.6 of the 5090's VRAM), the DSRL SAC + robot env run in this repo's venv
 (~0.2), cameras/arms attach over Portal/CAN.
+
+---
+
+## ⚠ Station update 2026-08-25 — YAM-abc (earbud insert)
+
+The stages below were first verified on the retired vial station. The live
+station is **YAM-abc** (limb branch `YAM-abc`; two-arm ex-leaders, FlexPoint
+grippers, all-D405 cams — never mix the stations' values). Code defaults now
+target YAM-abc; where a value below conflicts with this table, this table wins.
+
+| Item | YAM-abc value (vs vial-era) |
+|---|---|
+| Task / SFT | **earbud insert**, `pi05_yam_abc_earbuds`, ckpt `~/.cache/openpi/hf/pi05_yam_earbuds_teleop_15k` (PINNED; was vial `pi05_yam_vial_4_30fps_aug`) |
+| Prompt (verbatim, no trailing period) | `insert the wireless bluetooth earbuds into the charging case` |
+| Grippers | FlexPoint, **normalized [0,1], open=1.0** (was [0,2.4], open=2.2) — obs AND commands; stage 2 asserts obs gripper dims land in [0,1] |
+| Cameras | same names (head/left_wrist/right_wrist → cam_high/left/right), all D405, NEW serials 409122274017 / 427622273576 / 427622271888 (from the limb YAML — nothing to change in DSRL) |
+| limb config | `configs/yam_subtask_rl_earbud_insert.yaml` (robots/sensors sections only) |
+| Run script | `examples/scripts/run_yam_abc_earbud.sh` (`run_yam.sh` = retired vial station) |
+| wandb | project **`subrl-yam-earbud-insert`**, group `dsrl-fulltask` (cross-baseline row vs RLT `rlt_fulltask_v1` and SubRL `earbud_insert_v*`) |
+| Stage-3 gate | **~10%** pure-VLA success (earbud SFT solo baseline; was 6/23 ≈ 26% for vial) |
+| Episode | 1200 steps / 40 s @30 Hz (matches the SubRL earbud RL budget); operator re-stage ≤10 s |
+
+Serve on YAM-abc (plain — do **not** set `SUBRL_RLTOKEN` for DSRL sessions;
+`get_prefix_rep` is pinned to the plain mean-pool either way, but keep the
+serve variants distinguishable):
+
+```bash
+cd ~/Desktop/research/limb/openpi     # yam-vial-30fps-v1 + uncommitted YAM-abc configs
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.6 \
+uv run python scripts/serve_policy.py --port=8111 policy:checkpoint \
+  --policy.config=pi05_yam_abc_earbuds \
+  --policy.dir=/home/ssc/.cache/openpi/hf/pi05_yam_earbuds_teleop_15k
+```
+
+GPU cohabitation on this box: check `nvidia-smi` FIRST — RLT stage-1 training
+(`train_rlt.py`, ~22 GB) and SFT runs are mutually exclusive with the serve;
+SAM3 (:8114) / DINOv2 (:8118) may be resident for SubRL work; **never kill
+RustDesk**. Ports 8112/9107–9109 belong to the RLT baseline.
+
+Venv addendum for stages 2+ (robot path; verified 2026-08-25 — the July venv
+lacked these). Order matters:
+
+```bash
+conda activate dsrl_yam
+pip install "robocam @ git+https://github.com/TToTMooN/robocam.git@7284ce3a7fb762ac9497b95beea8782095c9a7a2"
+pip install python-can ruckig      # ruckig wheel BEFORE i2rt (i2rt's pinned 0.15.3 has no wheel; source build fails)
+pip install -e ~/Desktop/research/limb/dependencies/i2rt --no-deps   # its exact pins (numpy/mujoco/portal) would wreck this env
+pip install "qpsolvers[quadprog]" threadpoolctl "click<8.2.0"
+pip install mujoco==3.3.5          # yam.xml needs mujoco>=3 (2.3.7 fails at 'joint')
+# ^ knowingly breaks dm-control's mujoco pin: this venv is YAM-REAL-ONLY —
+#   the upstream ALOHA/LIBERO sim scripts will not run in it. (i2rt's tyro
+#   pin warning is benign; limb uses tyro 1.x.)
+# verify:
+python -c "from limb.utils import launch_utils; from i2rt.robots.motor_chain_robot import MotorChainRobot; import mujoco; mujoco.MjModel.from_xml_path('$HOME/Desktop/research/limb/dependencies/i2rt/i2rt/robot_models/yam/yam.xml'); print('robot path OK')"
+```
 
 ---
 

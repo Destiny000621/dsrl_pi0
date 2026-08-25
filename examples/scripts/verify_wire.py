@@ -15,17 +15,19 @@ import argparse
 import numpy as np
 from openpi_client import websocket_client_policy
 
-PROMPT = "pick up all vials and place them in the stand"  # SFT default_prompt, verbatim
+# Default = YAM-abc earbud SFT default_prompt, verbatim (no trailing period).
+# Pass --prompt to match whatever SFT the serve is running.
+DEFAULT_PROMPT = "insert the wireless bluetooth earbuds into the charging case"
 
 
-def synthetic_obs():
+def synthetic_obs(prompt):
     return {
         "state": np.zeros(14, dtype=np.float32),
         "images": {
             name: np.zeros((3, 224, 224), dtype=np.uint8)
             for name in ("cam_high", "cam_left_wrist", "cam_right_wrist")
         },
-        "prompt": PROMPT,
+        "prompt": prompt,
     }
 
 
@@ -33,11 +35,12 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8111)
+    p.add_argument("--prompt", default=DEFAULT_PROMPT)
     args = p.parse_args()
 
     client = websocket_client_policy.WebsocketClientPolicy(host=args.host, port=args.port)
     print("server metadata:", client.get_server_metadata())
-    obs = synthetic_obs()
+    obs = synthetic_obs(args.prompt)
 
     # 1. plain path (what the SubRL stack sends) — proves envelope backward compat
     a_plain = np.asarray(client.infer(obs)["actions"])

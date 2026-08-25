@@ -120,6 +120,8 @@ def main(variant):
         config_path=variant.limb_config,
         control_hz=variant.control_hz,
         joint_delta_limit=variant.joint_delta_limit,
+        gripper_clip=(0.0, variant.gripper_clip_max),
+        gripper_open_cmd=variant.gripper_open_cmd,
     )
     eval_env = env
 

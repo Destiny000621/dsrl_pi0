@@ -24,7 +24,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=256, help='Mini batch size.', type=int)
     parser.add_argument('--max_steps', default=int(5e5), help='Number of training (gradient) steps.', type=int)
     parser.add_argument('--add_states', default=1, help='whether to add low-dim states to the observations', type=int)
-    parser.add_argument('--wandb_project', default='subrl-yam-grasp', help='wandb project')
+    parser.add_argument('--wandb_project', default='subrl-yam-earbud-insert',
+                        help='wandb project (per-task convention; earbud = subrl-yam-earbud-insert)')
     parser.add_argument('--num_initial_traj_collect', default=1,
                         help='number of trajectories to collect before starting online updates', type=int)
     parser.add_argument('--algorithm', default='pixel_sac', help='type of algorithm')
@@ -35,8 +36,9 @@ if __name__ == '__main__':
     parser.add_argument('--resize_image', default=128, help='the size of image if need resizing', type=int)
     parser.add_argument('--query_freq', default=25,
                         help='env steps executed open-loop per noise decision (0.83 s @ 30 Hz)', type=int)
-    parser.add_argument('--instruction', default='pick up all vials and place them in the stand',
-                        help='language instruction — MUST equal the SFT default_prompt verbatim (plan §1)')
+    parser.add_argument('--instruction', default='insert the wireless bluetooth earbuds into the charging case',
+                        help='language instruction — MUST equal the served SFT default_prompt verbatim '
+                             '(YAM-abc earbud = pi05_yam_abc_earbuds; no trailing period)')
     parser.add_argument('--restore_path', default='', help='SAC checkpoint dir to restore from (B10a)')
     parser.add_argument('--action_horizon', default=50,
                         help='served model action horizon the noise row is tiled to (pi0.5 = 50, B2)', type=int)
@@ -48,10 +50,16 @@ if __name__ == '__main__':
                         help="episode reward/reset mode; only 'keypress' is implemented (plan §4)")
     parser.add_argument('--control_hz', default=30.0, help='robot control rate (SFT data rate)', type=float)
     parser.add_argument('--limb_root', default='/home/ssc/Desktop/research/limb', help='limb repo checkout')
-    parser.add_argument('--limb_config', default='configs/yam_subtask_rl_grasp.yaml',
-                        help='limb launch YAML whose robots/sensors sections define the hardware')
+    parser.add_argument('--limb_config', default='configs/yam_subtask_rl_earbud_insert.yaml',
+                        help='limb launch YAML whose robots/sensors sections define the hardware '
+                             '(YAM-abc earbud default; never mix stations)')
     parser.add_argument('--joint_delta_limit', default=0.15,
                         help='max commanded joint change per tick, rad (safety chain, B3)', type=float)
+    parser.add_argument('--gripper_open_cmd', default=1.0,
+                        help='gripper open command (YAM-abc FlexPoint normalized: 1.0; vial-era was 2.2)',
+                        type=float)
+    parser.add_argument('--gripper_clip_max', default=1.0,
+                        help='max gripper command (YAM-abc FlexPoint: 1.0; vial-era was 2.4)', type=float)
 
     # The hyperparameters for the real robot experiments (identical to
     # launch_train_real.py; --discount etc. are CLI-overridable via parse_training_args)

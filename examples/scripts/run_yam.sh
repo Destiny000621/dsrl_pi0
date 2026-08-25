@@ -1,4 +1,8 @@
 #!/bin/bash
+# RETIRED (2026-08-25): this is the OLD vial-station script — [0,2.4] grippers,
+# vial SFT/prompt, old camera serials. The live station is YAM-abc: use
+# run_yam_abc_earbud.sh. Never mix the two stations' values.
+#
 # DSRL on YAM — full-task baseline (SubRL-VLA/docs/dsrl_yam_port_plan.md §5.1).
 #
 # Prerequisites (plan §6):
@@ -30,11 +34,16 @@ export XLA_PYTHON_CLIENT_MEM_FRACTION=0.2
 export remote_host=${remote_host:-127.0.0.1}
 export remote_port=${remote_port:-8111}
 
+# Vial-era values pinned explicitly — the launcher defaults now target YAM-abc.
 python3 examples/launch_train_yam.py \
 --mode keypress \
 --prefix dsrl_yam_fulltask \
 --launch_group_id dsrl-fulltask \
 --wandb_project ${proj_name} \
+--limb_config configs/yam_subtask_rl_grasp.yaml \
+--instruction "pick up all vials and place them in the stand" \
+--gripper_open_cmd 2.2 \
+--gripper_clip_max 2.4 \
 --batch_size 256 \
 --discount 0.999 \
 --seed 0 \

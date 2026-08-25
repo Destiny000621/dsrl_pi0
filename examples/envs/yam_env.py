@@ -9,8 +9,14 @@ limb or SubRL-VLA is modified. All DROID assumptions from the upstream repo are
 gone — actions here are ABSOLUTE joint radians, shape (14,) laid out as
 [l_j0..5, l_grip, r_j0..5, r_grip], executed through a safety chain
 (hold-guard, per-tick joint delta clamp, joint-limit clamp with margin,
-gripper clip to [0, 2.4]) because the i2rt motor chain raises RuntimeError and
-kills the robot subprocess on a raw limit violation (port plan B3).
+gripper clip) because the i2rt motor chain raises RuntimeError and kills the
+robot subprocess on a raw limit violation (port plan B3).
+
+Station note (2026-08-25): defaults target the YAM-abc station — FlexPoint
+grippers with NORMALIZED commands in [0, 1] (0=closed, 1=open) and the earbud
+task config. The retired vial station used [0, 2.4] with open=2.2; pass
+gripper_clip/gripper_open_cmd/config_path explicitly to run there. Never mix
+the two stations' values.
 
 See SubRL-VLA/docs/dsrl_yam_port_plan.md §3b.1 / B3 / B4 / B5 / B9.
 """
@@ -49,9 +55,10 @@ class YamEnv:
     joint_limit_margin : float
         Margin inside the robot_configs joint limits, radians.
     gripper_clip : (float, float)
-        Commanded gripper range. Obs gripper is [0, 1]; commands are [0, 2.4].
+        Commanded gripper range. YAM-abc FlexPoint: obs AND commands are
+        normalized [0, 1]. (Vial-era stations commanded [0, 2.4].)
     gripper_open_cmd : float
-        "Open" command used during reset (2.2 per the SubRL configs).
+        "Open" command used during reset (1.0 = FlexPoint fully open).
     reset_duration_s : float
         Interpolated move-to-home duration in reset().
     inject_ee_pose : bool
@@ -62,12 +69,12 @@ class YamEnv:
     def __init__(
         self,
         limb_root: str = "/home/ssc/Desktop/research/limb",
-        config_path: str = "configs/yam_subtask_rl_grasp.yaml",
+        config_path: str = "configs/yam_subtask_rl_earbud_insert.yaml",
         control_hz: float = 30.0,
         joint_delta_limit: float = 0.15,
         joint_limit_margin: float = 0.05,
-        gripper_clip: tuple = (0.0, 2.4),
-        gripper_open_cmd: float = 2.2,
+        gripper_clip: tuple = (0.0, 1.0),
+        gripper_open_cmd: float = 1.0,
         reset_duration_s: float = 4.0,
         inject_ee_pose: bool = True,
         setup_can: bool = True,
