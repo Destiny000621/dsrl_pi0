@@ -38,7 +38,7 @@ Serve on YAM-abc (plain — do **not** set `SUBRL_RLTOKEN` for DSRL sessions;
 either way, but keep the serve variants distinguishable):
 
 ```bash
-cd ~/Desktop/research/limb/openpi     # yam-vial-30fps-v1 + uncommitted YAM-abc configs
+cd ~/Desktop/research/limb/openpi     # branch dsrl_yam (DSRL commits) + SubRL WIP uncommitted on top
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.6 \
 uv run python scripts/serve_policy.py --port=8111 policy:checkpoint \
   --policy.config=pi05_yam_abc_earbuds \
@@ -103,7 +103,7 @@ coexistence noise, harmless. If a future wheel bump crashes with a PTX/sm_120
 error: `pip install "jax[cuda12]==0.5.3"`, or `JAX_PLATFORMS=cpu` as a last
 resort (the 128 px CNN is small).
 
-### 0.2 pi0.5 serve (separate shell, limb/openpi venv)
+### 0.2 pi0.5 serve (separate shell, limb/openpi venv) — vial-era example; on YAM-abc use the station-section command above
 
 ```bash
 cd ~/Desktop/research/limb/openpi         # branch dsrl_yam
