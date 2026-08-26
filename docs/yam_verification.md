@@ -135,6 +135,10 @@ no-noise → differing chunks, the DSRL tiled-row noise structure, and
 expected 14 + 2048 = 2062).
 
 **Pass:** script prints `ALL WIRE CHECKS PASSED`.
+Verified 2026-08-25 on YAM-abc against the plain `pi05_yam_abc_earbuds` serve
+(branch `dsrl_yam` @ `dddce9d`, official last-slot feature): all five checks
+green — plain chunk (50, 14), same-noise max diff 0.0, no-noise diff 0.93,
+`prefix_rep` (1, 2048) → `state_dim` 2062.
 Failure modes: "same noise gave different chunks" → the serve is not running
 the `dsrl_yam` branch; envelope/`get_prefix_rep` errors → stale openpi-client
 install (re-run the 0.1 `pip install -e .../openpi-client`).
