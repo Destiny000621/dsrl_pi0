@@ -60,8 +60,12 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
     wandb_logger.log({'num_online_trajs': 0}, step=i)
     wandb_logger.log({'env_steps': 0}, step=i)
 
+    max_episodes = getattr(variant, 'max_episodes', -1)
     with tqdm(total=variant.max_steps, initial=0) as pbar:
         while i <= variant.max_steps:
+            if max_episodes > 0 and total_num_traj >= max_episodes:
+                print(f'Episode budget reached ({total_num_traj}/{max_episodes}) — stopping.')
+                break
             traj = collect_traj(variant, agent, env, i, agent_dp, wandb_logger, total_num_traj)
             total_num_traj += 1
             add_online_data_to_buffer(variant, traj, online_replay_buffer)

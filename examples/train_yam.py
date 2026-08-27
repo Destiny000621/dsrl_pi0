@@ -154,7 +154,15 @@ def main(variant):
             logging.info('restoring from %s', variant.restore_path)
             agent.restore_checkpoint(variant.restore_path)
 
-        online_buffer_size = 2 * variant.max_steps // variant.multi_grad_step
+        # Upstream sizes the buffer from max_steps/UTD; on a fixed EPISODE budget
+        # that either truncates the run or preallocates far more RAM than the
+        # episodes can fill (311 KB/row) — --buffer_size overrides it.
+        if getattr(variant, 'buffer_size', -1) > 0:
+            online_buffer_size = variant.buffer_size
+        else:
+            online_buffer_size = 2 * variant.max_steps // variant.multi_grad_step
+        print(f'replay buffer capacity: {int(online_buffer_size)} rows '
+              f'(~{int(online_buffer_size) * 311 / 1e6:.1f} GB RAM)')
         online_replay_buffer = ReplayBuffer(dummy_env.observation_space, dummy_env.action_space,
                                             int(online_buffer_size))
         replay_buffer = online_replay_buffer

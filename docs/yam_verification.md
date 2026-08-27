@@ -216,7 +216,11 @@ bash examples/scripts/run_yam.sh
 
 This is the plan §5.1 config: `query_freq 25`, `discount 0.999`,
 `action_magnitude 2.5`, hidden 1024×3, `num_qs 2`, batch 256, UTD 30,
-3600-step episodes, 500k grad-step ceiling. The first episode + 5000-grad-step
+3600-step episodes, a **500-episode budget** (`--max_episodes`), `max_steps`
+1.5M so the gradient ceiling never truncates it (~80 decisions × UTD 30 ≈
+2.4k steps/episode), and `--buffer_size 60000` rows (≈19 GB RAM; the upstream
+`2·max_steps/UTD` formula would preallocate 100k rows = 31 GB) — raise it if
+episodes average >120 decisions, since overflow resizes cost up to 3× RAM. The first episode + 5000-grad-step
 block is the built-in warmup; after that, expect up to ~4300 grad steps (144
 decisions × UTD 30, ≈3–4 min on the 5090) between full-length episodes — fewer
 when `q` ends an episode early.

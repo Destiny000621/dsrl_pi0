@@ -63,6 +63,12 @@ if __name__ == '__main__':
     parser.add_argument('--gripper_open_cmd', default=1.0,
                         help='gripper open command (YAM-abc FlexPoint normalized: 1.0; vial-era was 2.2)',
                         type=float)
+    parser.add_argument('--buffer_size', default=-1,
+                        help='replay capacity in rows (decisions); -1 = upstream formula 2*max_steps//multi_grad_step. '
+                             '~311 KB/row at 128px x 3 cams — size to the episode budget, not to max_steps', type=int)
+    parser.add_argument('--max_episodes', default=-1,
+                        help='stop cleanly after this many episodes; -1 = unlimited (upstream: only max_steps stops the run)',
+                        type=int)
     parser.add_argument('--gripper_clip_max', default=1.0,
                         help='max gripper command (YAM-abc FlexPoint: 1.0; vial-era was 2.4)', type=float)
 

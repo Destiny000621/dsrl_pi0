@@ -45,7 +45,9 @@ python3 examples/launch_train_yam.py \
 --batch_size 256 \
 --discount 0.999 \
 --seed 0 \
---max_steps 500000 \
+--max_steps 1500000 \
+--max_episodes 500 \
+--buffer_size 60000 \
 --eval_interval 2000 \
 --log_interval 100 \
 --checkpoint_interval 20000 \
