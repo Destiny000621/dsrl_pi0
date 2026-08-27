@@ -86,11 +86,19 @@ def main():
         bad[6] = 99.0   # gripper: must clip to the station max (YAM-abc FlexPoint: 1.0)
         bad[13] = -9.0  # gripper: must clip to 0.0
         env.step(bad)
+        # Settle ~0.33 s on the (clamped) target before measuring: right after
+        # an input() pause limb's Rate skips its sleep (schedule overrun), so an
+        # immediate read sees 0.000 rad — a vacuous pass. hold() sends no new
+        # command, so the arm converges to exactly what the clamp let through.
+        for _ in range(10):
+            env.hold()
         step_delta = np.abs(qpos_of(env) - q_before)[np.r_[0:6, 7:13]]
         assert step_delta.max() < DELTA + 0.05, \
-            f"CLAMP FAILED: a joint moved {step_delta.max():.3f} rad in one tick"
-        print(f"4. safety clamp OK: max one-tick joint change {step_delta.max():.3f} rad "
-              f"(limit {DELTA} + tracking)")
+            f"CLAMP FAILED: a joint moved {step_delta.max():.3f} rad on a +/-pi command"
+        assert step_delta.max() > 0.01, \
+            "clamp test inconclusive: the arm did not move at all — command not executed?"
+        print(f"4. safety clamp OK: +/-pi command produced a {step_delta.max():.3f} rad twitch "
+              f"(clamp {DELTA}, must be within {DELTA}+0.05 and > 0.01)")
         env.step(np.concatenate([q_before[:6], [env.gripper_open_cmd],
                                  q_before[7:13], [env.gripper_open_cmd]]))
 
