@@ -31,7 +31,7 @@ target YAM-abc; where a value below conflicts with this table, this table wins.
 | Run script | `examples/scripts/run_yam_abc_earbud.sh` (`run_yam.sh` = retired vial station) |
 | wandb | project **`subrl-yam-earbud-insert`**, group `dsrl-fulltask` (cross-baseline row vs RLT `rlt_fulltask_v1` and SubRL `earbud_insert_v*`) |
 | Stage-3 gate | **~10%** pure-VLA success (earbud SFT solo baseline; was 6/23 ≈ 26% for vial) |
-| Episode | 1200 steps / 40 s @30 Hz (matches the SubRL earbud RL budget); operator re-stage ≤10 s |
+| Episode | **3600 steps / 120 s** @30 Hz (raised from 1200/40 s on 2026-08-26; `q` ends an episode early); operator re-stage ≤10 s |
 
 Serve on YAM-abc (plain — do **not** set `SUBRL_RLTOKEN` for DSRL sessions;
 `get_prefix_rep` is pinned to the official dsrl_pi0 last-prefix-slot feature
@@ -183,10 +183,10 @@ export EXP=./logs/dsrl_yam CUDA_VISIBLE_DEVICES=0 \
 python examples/launch_train_yam.py --mode keypress \
   --prefix dsrl_yam_basepolicy --wandb_project subrl-yam-grasp \
   --num_initial_traj_collect 999 \
-  --max_timesteps 1200 --query_freq 25 --action_horizon 50
+  --max_timesteps 3600 --query_freq 25 --action_horizon 50
 ```
 
-Operator loop per episode: stage the vial scene → `c` starts → (up to 40 s at
+Operator loop per episode: stage the vial scene → `c` starts → (up to 120 s at
 30 Hz; `q` aborts) → label `1`/`0` → arms auto-return home → re-stage.
 Episode videos land in `$EXP/<run>/video_high_<n>.mp4`.
 
@@ -216,9 +216,10 @@ bash examples/scripts/run_yam.sh
 
 This is the plan §5.1 config: `query_freq 25`, `discount 0.999`,
 `action_magnitude 2.5`, hidden 1024×3, `num_qs 2`, batch 256, UTD 30,
-1200-step episodes, 500k grad-step ceiling. The first episode + 5000-grad-step
-block is the built-in warmup; after that, expect ~1440 grad steps (≈1–2 min on
-the 5090) between episodes.
+3600-step episodes, 500k grad-step ceiling. The first episode + 5000-grad-step
+block is the built-in warmup; after that, expect up to ~4300 grad steps (144
+decisions × UTD 30, ≈3–4 min on the 5090) between full-length episodes — fewer
+when `q` ends an episode early.
 
 **Watch in the first hour:**
 - `training/critic_loss`, `training/actor_loss` finite, no NaN;

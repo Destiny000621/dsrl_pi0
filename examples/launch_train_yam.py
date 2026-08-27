@@ -1,6 +1,6 @@
 """Launcher for DSRL on YAM — clone of launch_train_real.py with the YAM flags
 (plan §3b.4): --restore_path (upstream referenced it without defining it, B10a),
---query_freq 25, --action_horizon 50, --max_timesteps 1200, --mode.
+--query_freq 25, --action_horizon 50, --max_timesteps 3600 (120 s), --mode.
 
 Hyperparameter defaults follow the real-DROID recipe (plan §5.1 candidate (i));
 run_yam.sh overrides discount to 0.999 for the 48-decision full-task horizon.
@@ -49,8 +49,8 @@ if __name__ == '__main__':
                         help='served model action horizon the noise row is tiled to (pi0.5 = 50, B2)', type=int)
     parser.add_argument('--noise_dim', default=32,
                         help='flow latent dim per chunk row (pi0.5 padded action_dim = 32)', type=int)
-    parser.add_argument('--max_timesteps', default=1200,
-                        help='episode step budget (40 s @ 30 Hz, plan §5.1)', type=int)
+    parser.add_argument('--max_timesteps', default=3600,
+                        help='episode step budget (120 s @ 30 Hz; user raised from 40 s on 2026-08-26)', type=int)
     parser.add_argument('--mode', default='keypress', choices=['keypress', 'autonomous', 'pedal_safety'],
                         help="episode reward/reset mode; only 'keypress' is implemented (plan §4)")
     parser.add_argument('--control_hz', default=30.0, help='robot control rate (SFT data rate)', type=float)
