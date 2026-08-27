@@ -55,6 +55,7 @@ python3 examples/launch_train_yam.py \
 --resize_image 128 \
 --action_magnitude 2.5 \
 --query_freq 25 \
+--noise_rows 50 \
 --action_horizon 50 \
 --max_timesteps 3600 \
 --hidden_dims 1024 \

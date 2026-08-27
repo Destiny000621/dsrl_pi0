@@ -164,6 +164,8 @@ on pi0 / ALOHA-sim). Consequence: with `--noise_rows 1` (upstream) the
 base-policy phase does NOT behave like the SFT and Stage 3 cannot reproduce
 the ~10% gate; `--noise_rows 50` (full-chunk latent, the DSRL paper's general
 formulation, 1600-d SAC action) makes the base phase exactly SFT sampling.
+**Decision (user, 2026-08-26): `--noise_rows 50`** for the YAM-abc earbud baseline
+(set in `run_yam_abc_earbud.sh`; pass it explicitly to the Stage 3 command too).
 The choice is recorded per run in the wandb config (`noise_rows`).
 
 ## Stage 2 — YamEnv dry-run (ROBOT live, no RL)
@@ -200,8 +202,8 @@ export EXP=./logs/dsrl_yam CUDA_VISIBLE_DEVICES=0 \
        XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.2
 python examples/launch_train_yam.py --mode keypress \
   --prefix dsrl_yam_basepolicy --wandb_project subrl-yam-grasp \
-  --num_initial_traj_collect 999 \
-  --max_timesteps 3600 --query_freq 25 --action_horizon 50
+  --num_initial_traj_collect 999 --max_episodes 10 \
+  --noise_rows 50 --query_freq 25 --action_horizon 50
 ```
 
 Operator loop per episode: stage the vial scene → `c` starts → (up to 120 s at
