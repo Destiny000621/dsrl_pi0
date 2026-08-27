@@ -148,6 +148,24 @@ Optional deeper check: replay a recorded obs from
 the pre-patch serve output for the same obs — proves the patch changed nothing
 on the plain path.
 
+### Stage 1b — noise-structure probe (NO robot; decides `--noise_rows`)
+
+```bash
+python examples/scripts/probe_noise_vs_expert.py    # live serve + expert demos (earbuds_30fps_v21)
+```
+
+Measured 2026-08-26 on `pi05_yam_earbuds_teleop_15k`, 9 expert frames, first 25
+steps of each chunk: i.i.d. `N(0,1)` (50,32) noise — normal SFT sampling —
+reproduces the expert to **0.011 rad** joint MAE (spread 0.010); upstream
+DSRL's **single row tiled over the horizon** gives **0.452 rad** (40×) with
+0.687 rad sample spread and 0.36 gripper error. A time-constant noise tensor is
+out of distribution for this pi0.5 flow model (upstream's tiling was developed
+on pi0 / ALOHA-sim). Consequence: with `--noise_rows 1` (upstream) the
+base-policy phase does NOT behave like the SFT and Stage 3 cannot reproduce
+the ~10% gate; `--noise_rows 50` (full-chunk latent, the DSRL paper's general
+formulation, 1600-d SAC action) makes the base phase exactly SFT sampling.
+The choice is recorded per run in the wandb config (`noise_rows`).
+
 ## Stage 2 — YamEnv dry-run (ROBOT live, no RL)
 
 Arms powered, CAN up, three RealSense cams connected. **Stand clear.**

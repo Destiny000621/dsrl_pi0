@@ -226,4 +226,15 @@ for is_success in (True, False):
     if is_success:
         assert r[-1] == 0 and m[-1] == 0, "absorbing success row must survive a trim"
 
+# ------------------------------------------------ noise fill (upstream last-row semantics)
+one = np.arange(32, dtype=np.float32)[None]                     # (1, 32) upstream single row
+n1 = T.fill_noise_chunk(one, 50)
+assert n1.shape == (1, 50, 32) and (n1[0] == one).all(), "single row must tile over the horizon"
+full = np.random.default_rng(0).standard_normal((50, 32)).astype(np.float32)
+n50 = T.fill_noise_chunk(full, 50)
+assert n50.shape == (1, 50, 32) and (n50[0] == full).all(), "full chunk must pass through untouched"
+part = np.random.default_rng(1).standard_normal((10, 32)).astype(np.float32)
+n10 = T.fill_noise_chunk(part, 50)
+assert (n10[0, :10] == part).all() and (n10[0, 10:] == part[-1]).all(), "fill must repeat the LAST row"
+
 print("ALL OFFLINE NO-ROBOT TESTS PASSED")

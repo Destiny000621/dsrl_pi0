@@ -54,9 +54,10 @@ class DummyEnv(gym.ObservationWrapper):
         if variant.add_states:
             obs_dict['state'] = Box(low=-1.0, high=1.0, shape=(state_dim, 1), dtype=np.float32)
         self.observation_space = Dict(obs_dict)
-        # The SAC action is ONE noise row, tiled across the model's action horizon
-        # at replan time — a (1, 32) space, not (horizon, 32) (plan §1 'SAC action').
-        self.action_space = Box(low=-1, high=1, shape=(1, variant.noise_dim), dtype=np.float32)
+        # noise_rows=1 -> upstream's (1, 32) single-row space (tiled over the horizon at
+        # replan time); noise_rows=action_horizon -> the full (50, 32) chunk. Upstream
+        # derives action_chunk_shape from this shape, so the SAC adapts automatically.
+        self.action_space = Box(low=-1, high=1, shape=(variant.noise_rows, variant.noise_dim), dtype=np.float32)
 
 
 def main(variant):

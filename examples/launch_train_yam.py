@@ -53,6 +53,11 @@ if __name__ == '__main__':
                         help='served model action horizon the noise row is tiled to (pi0.5 = 50, B2)', type=int)
     parser.add_argument('--noise_dim', default=32,
                         help='flow latent dim per chunk row (pi0.5 padded action_dim = 32)', type=int)
+    parser.add_argument('--noise_rows', default=1,
+                        help='rows of the (horizon, 32) flow noise the SAC controls: 1 = upstream dsrl_pi0 '
+                             '(one row tiled over the horizon; measured 2026-08-26 to break pi0.5-SFT: 0.45 rad '
+                             'joint MAE vs expert, i.i.d. gives 0.011); 50 = full chunk (1600-d, DSRL paper '
+                             'formulation; base phase == exact SFT sampling)', type=int)
     parser.add_argument('--max_timesteps', default=3600,
                         help='episode step budget (120 s @ 30 Hz; user raised from 40 s on 2026-08-26)', type=int)
     parser.add_argument('--mode', default='keypress', choices=['keypress', 'autonomous', 'pedal_safety'],

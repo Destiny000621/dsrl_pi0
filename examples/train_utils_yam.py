@@ -238,6 +238,18 @@ def get_sac_obs(variant, curr_obs: dict, agent_dp, request_data: dict) -> dict:
     }
 
 
+def fill_noise_chunk(actions_noise: np.ndarray, action_horizon: int) -> np.ndarray:
+    """(rows, d) SAC noise -> (1, H, d) flow noise, upstream semantics: the LAST row is
+    repeated to fill the horizon (train_utils_real.py:169/176). rows=1 is upstream's
+    tiled single row; rows=H is the full chunk (no fill) — i.i.d. sampling when the
+    rows are N(0,1), i.e. exactly the SFT's own sampling."""
+    rows = actions_noise.shape[0]
+    if rows > action_horizon:
+        raise ValueError(f"noise rows {rows} exceed action_horizon {action_horizon}")
+    fill = np.repeat(actions_noise[-1:, :], action_horizon - rows, axis=0)
+    return np.concatenate([actions_noise, fill], axis=0)[None].astype(np.float32)
+
+
 # ---------------------------------------------------------------- keyboard
 
 def _drain_stdin() -> None:
@@ -306,16 +318,13 @@ def collect_traj(variant, agent, env, i, agent_dp=None, wandb_logger=None, traj_
 
                     if i == 0 and not getattr(variant, 'restore_path', ''):
                         # Base-policy phase (fresh runs only — a restored actor acts
-                        # immediately): ONE N(0,1) row tiled across the horizon —
-                        # the same single-row-tiled structure the SAC produces, so the
+                        # immediately): N(0,1) in the SAC's own noise shape, so the
                         # first 5000-grad-step block trains on in-distribution actions.
-                        noise_row = jax.random.normal(key, (1, 1, noise_dim))
-                        noise = np.asarray(jax.numpy.repeat(noise_row, action_horizon, axis=1))
-                        actions_noise = np.asarray(noise_row[0])  # (1, noise_dim) — the SAC action
+                        actions_noise = np.asarray(jax.random.normal(key, agent.action_chunk_shape))
                     else:
                         actions_noise = agent.sample_actions(obs_dict)
-                        actions_noise = np.reshape(actions_noise, agent.action_chunk_shape)  # (1, noise_dim)
-                        noise = np.repeat(actions_noise, action_horizon, axis=0)[None]  # (1, H, noise_dim)
+                        actions_noise = np.reshape(actions_noise, agent.action_chunk_shape)  # (rows, noise_dim)
+                    noise = fill_noise_chunk(actions_noise, action_horizon)  # (1, H, noise_dim)
                     action_list.append(actions_noise)
                     obs_list.append(obs_dict)
                     action = agent_dp.infer(request_data, noise=np.asarray(noise))["actions"]
