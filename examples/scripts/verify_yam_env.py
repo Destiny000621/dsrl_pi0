@@ -12,11 +12,17 @@ STAND CLEAR OF THE ARMS. Run inside the dsrl venv on the YAM box:
     python examples/scripts/verify_yam_env.py
 """
 import argparse
+import pathlib
+import sys
 import types
 
 import numpy as np
 
-from examples.envs.yam_env import YamEnv
+# Make the repo root importable when run as `python examples/scripts/...py`
+# (sys.path[0] is the script's own dir, not the cwd).
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from examples.envs.yam_env import YamEnv  # noqa: E402
 from examples.train_utils_yam import extract_yam_observation, get_pi0_input, process_images
 
 PROMPT = "insert the wireless bluetooth earbuds into the charging case"  # YAM-abc earbud SFT

@@ -6,10 +6,15 @@ Hyperparameter defaults follow the real-DROID recipe (plan §5.1 candidate (i));
 run_yam.sh overrides discount to 0.999 for the 48-decision full-task horizon.
 """
 import argparse
+import pathlib
 import sys
 
-from examples.train_yam import main
-from jaxrl2.utils.launch_util import parse_training_args
+# Make the repo root importable when run as `python examples/launch_train_yam.py`
+# (sys.path[0] is examples/, not the cwd; upstream's launchers share this gap).
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from examples.train_yam import main  # noqa: E402
+from jaxrl2.utils.launch_util import parse_training_args  # noqa: E402
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
