@@ -13,10 +13,14 @@ import sys
 # (sys.path[0] is examples/, not the cwd; upstream's launchers share this gap).
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from examples.train_yam import main  # noqa: E402
-from jaxrl2.utils.launch_util import parse_training_args  # noqa: E402
-
 if __name__ == '__main__':
+    # Imported HERE, not at module level: limb spawns cameras/arms as `spawn`
+    # subprocesses that re-execute this module's top level — with these at
+    # module scope every child re-imported TensorFlow + jaxrl2/flax/orbax
+    # (~3 s each, five children) before it could even open its device.
+    from examples.train_yam import main
+    from jaxrl2.utils.launch_util import parse_training_args
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--seed', default=42, help='Random seed.', type=int)

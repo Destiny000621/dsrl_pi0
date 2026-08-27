@@ -14,31 +14,23 @@ import tempfile
 from functools import partial
 
 import gymnasium as gym
-import jax
 import numpy as np
-import tensorflow as tf
 from gym.spaces import Box, Dict
-from jax.experimental.compilation_cache import compilation_cache
-
-from jaxrl2.agents.pixel_sac.pixel_sac_learner import PixelSACLearner
-from jaxrl2.data import ReplayBuffer
-from jaxrl2.utils.general_utils import add_batch_dim
-from jaxrl2.utils.wandb_logger import WandBLogger, create_exp_name
-from openpi_client import websocket_client_policy as _websocket_client_policy
 
 from examples.envs.yam_env import YamEnv
-from examples.train_utils_yam import (
-    extract_yam_observation,
-    get_pi0_input,
-    trajwise_alternating_training_loop,
-)
 
-home_dir = os.environ['HOME']
-compilation_cache.initialize_cache(os.path.join(home_dir, 'jax_compilation_cache'))
+# Heavy imports (jax, TensorFlow, jaxrl2/flax/orbax, openpi_client, the training
+# loop) happen inside main(): limb spawns cameras/arms as `spawn` subprocesses
+# that re-import this module, and at module scope each child paid the full
+# stack (~3 s) before opening its device. TensorFlow is only imported to hide
+# the GPU from it (upstream pattern); its PTX/sm_120 warning is noise since no
+# TF op ever runs — TF_CPP_MIN_LOG_LEVEL=2 silences it.
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 
 def shard_batch(batch, sharding):
     """Shards a batch across devices along its first dimension."""
+    import jax
     return jax.tree_util.tree_map(
         lambda x: jax.device_put(
             x, sharding.reshape(sharding.shape[0], *((1,) * (x.ndim - 1)))
@@ -68,6 +60,23 @@ class DummyEnv(gym.ObservationWrapper):
 
 
 def main(variant):
+    import jax
+    import tensorflow as tf
+    from jax.experimental.compilation_cache import compilation_cache
+    from jaxrl2.agents.pixel_sac.pixel_sac_learner import PixelSACLearner
+    from jaxrl2.data import ReplayBuffer
+    from jaxrl2.utils.general_utils import add_batch_dim
+    from jaxrl2.utils.wandb_logger import WandBLogger, create_exp_name
+    from openpi_client import websocket_client_policy as _websocket_client_policy
+
+    from examples.train_utils_yam import (
+        extract_yam_observation,
+        get_pi0_input,
+        trajwise_alternating_training_loop,
+    )
+
+    compilation_cache.initialize_cache(os.path.join(os.environ['HOME'], 'jax_compilation_cache'))
+
     if variant.mode != 'keypress':
         raise NotImplementedError(
             f"mode={variant.mode!r}: only 'keypress' (operator reward + operator re-stage) is "
