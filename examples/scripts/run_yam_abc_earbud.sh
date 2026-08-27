@@ -59,4 +59,5 @@ python3 examples/launch_train_yam.py \
 --action_horizon 50 \
 --max_timesteps 3600 \
 --hidden_dims 1024 \
---num_qs 2
+--num_qs 2 \
+"$@"   # extra flags override the above (argparse: last wins) — e.g. --restore_path <run> --suffix s2
