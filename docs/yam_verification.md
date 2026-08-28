@@ -168,6 +168,27 @@ formulation, 1600-d SAC action) makes the base phase exactly SFT sampling.
 (set in `run_yam_abc_earbud.sh`; pass it explicitly to the Stage 3 command too).
 The choice is recorded per run in the wandb config (`noise_rows`).
 
+### Stage 1c — end-to-end loop smoke (NO robot)
+
+```bash
+python examples/scripts/smoke_loop_no_robot.py     # serve up; ~5 min
+```
+
+Drives the REAL training entry point (launcher argparse → `main()` → SAC construction
++ JIT on the GPU beside the serve → live `get_prefix_rep` + noise `infer` →
+`collect_traj` → replay insert/sample → the 5000-step warmup and per-episode update
+blocks → checkpoint save → video writer → `--max_episodes` stop), then a second pass
+that restores the checkpoint. Only the robot (synthetic obs of the exact limb shapes,
+every command recorded), the keypress gates, and wandb are faked.
+
+**Pass:** `END-TO-END SMOKE (no robot) PASSED`. Verified 2026-08-27: 3 × 75-step
+episodes (225 commands, all finite), warmup 5000 steps at ~183 it/s (hidden 256,
+batch 32), per-episode blocks of decisions × UTD, checkpoints `checkpoint2500` /
+`checkpoint5000` (flax names them `checkpoint<step>`, no underscore — pass the run
+dir to `--restore_path` for the latest, or a specific dir to pin one), 3 videos,
+`episode_reward [1, 0, 1]`, `training/critic_loss|actor_loss|temperature` logged;
+the restore pass drove an episode with the restored actor and no warmup block.
+
 ## Stage 2 — YamEnv dry-run (ROBOT live, no RL)
 
 Arms powered, CAN up, three RealSense cams connected. **Stand clear.**
