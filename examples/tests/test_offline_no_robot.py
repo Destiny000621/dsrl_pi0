@@ -237,4 +237,43 @@ part = np.random.default_rng(1).standard_normal((10, 32)).astype(np.float32)
 n10 = T.fill_noise_chunk(part, 50)
 assert (n10[0, :10] == part).all() and (n10[0, 10:] == part[-1]).all(), "fill must repeat the LAST row"
 
+# ------------------------------------------------------- buffer_io roundtrip
+from examples import buffer_io  # noqa: E402
+
+
+class _FakeRB:
+    def __init__(self, cap):
+        self.capacity = cap
+        self.data = {"observations": {"pixels": np.zeros((cap, 4), np.uint8),
+                                      "state": np.zeros((cap, 3), np.float32)},
+                     "actions": np.zeros((cap, 2), np.float32),
+                     "rewards": np.zeros(cap, np.float32)}
+        self.size = 0
+        self._traj_counter = 0
+        self._start = 0
+        self.traj_bounds = {}
+
+
+src = _FakeRB(10)
+src.data["observations"]["pixels"][:3] = 7
+src.data["actions"][:3] = 1.5
+src.size, src._traj_counter, src._start = 3, 2, 3
+src.traj_bounds = {0: (0, 2), 1: (2, 3)}
+import tempfile
+with tempfile.TemporaryDirectory() as td:
+    path = td + "/rb.pkl"
+    buffer_io.save_buffer(src, path)
+    dst = _FakeRB(10)
+    n, trajs = buffer_io.load_buffer(dst, path)
+    assert (n, trajs) == (3, 2)
+    assert dst.size == 3 and dst._start == 3 and dst.traj_bounds == {0: (0, 2), 1: (2, 3)}
+    assert (dst.data["observations"]["pixels"][:3] == 7).all()
+    assert (dst.data["actions"][:3] == 1.5).all()
+    tiny = _FakeRB(2)
+    try:
+        buffer_io.load_buffer(tiny, path)
+        raise AssertionError("expected capacity ValueError")
+    except ValueError:
+        pass
+
 print("ALL OFFLINE NO-ROBOT TESTS PASSED")

@@ -28,6 +28,8 @@ import tty
 
 import jax
 import numpy as np
+
+from examples.buffer_io import save_buffer
 from moviepy.editor import ImageSequenceClip
 from openpi_client import image_tools
 from tqdm import tqdm
@@ -132,6 +134,10 @@ def trajwise_alternating_training_loop(variant, agent, env, eval_env, online_rep
                     if variant.checkpoint_interval != -1:
                         if i % variant.checkpoint_interval == 0:
                             agent.save_checkpoint(variant.outputdir, i, variant.checkpoint_interval)
+                            # Robot data must survive a process death (2026-09-02
+                            # wedge): persist the buffer beside the SAC checkpoint.
+                            save_buffer(online_replay_buffer,
+                                        os.path.join(variant.outputdir, 'replay_buffer.pkl'))
 
 
 def add_online_data_to_buffer(variant, traj, online_replay_buffer):

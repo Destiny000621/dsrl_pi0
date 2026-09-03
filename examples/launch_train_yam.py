@@ -49,6 +49,8 @@ if __name__ == '__main__':
                         help='language instruction — MUST equal the served SFT default_prompt verbatim '
                              '(YAM-abc earbud = pi05_yam_abc_earbuds; no trailing period)')
     parser.add_argument('--restore_path', default='', help='SAC checkpoint dir to restore from (B10a)')
+    parser.add_argument('--restore_buffer', default='',
+                        help='replay_buffer.pkl (or a salvage dump) to preload into the fresh buffer')
     parser.add_argument('--action_horizon', default=50,
                         help='served model action horizon the noise row is tiled to (pi0.5 = 50, B2)', type=int)
     parser.add_argument('--noise_dim', default=32,

@@ -68,7 +68,6 @@ def main(variant):
     from jaxrl2.data import ReplayBuffer
     from jaxrl2.utils.general_utils import add_batch_dim
     from jaxrl2.utils.wandb_logger import WandBLogger, create_exp_name
-    from openpi_client import websocket_client_policy as _websocket_client_policy
 
     from examples.train_utils_yam import (
         extract_yam_observation,
@@ -115,6 +114,8 @@ def main(variant):
     variant.outputdir = outputdir
     if variant.restore_path:
         variant.restore_path = os.path.abspath(variant.restore_path)
+    if getattr(variant, 'restore_buffer', ''):
+        variant.restore_buffer = os.path.abspath(variant.restore_buffer)
     if not os.path.exists(outputdir):
         os.makedirs(outputdir)
     print('writing to output dir ', outputdir)
@@ -135,7 +136,8 @@ def main(variant):
     )
     eval_env = env
 
-    agent_dp = _websocket_client_policy.WebsocketClientPolicy(
+    from examples.reconnecting_client import ReconnectingPolicyClient
+    agent_dp = ReconnectingPolicyClient(
         host=os.environ.get('remote_host', '127.0.0.1'),
         port=int(os.environ.get('remote_port', '8111')),
     )
@@ -177,6 +179,11 @@ def main(variant):
                                             int(online_buffer_size))
         replay_buffer = online_replay_buffer
         replay_buffer.seed(variant.seed)
+
+        if getattr(variant, 'restore_buffer', ''):
+            from examples.buffer_io import load_buffer
+            rows, trajs = load_buffer(online_replay_buffer, variant.restore_buffer)
+            print(f'restored replay buffer: {rows} rows / {trajs} trajectories from {variant.restore_buffer}')
 
         trajwise_alternating_training_loop(variant, agent, env, eval_env, online_replay_buffer,
                                            replay_buffer, wandb_logger, shard_fn=shard_fn, agent_dp=agent_dp)
