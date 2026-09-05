@@ -130,13 +130,20 @@ capped at 2700 ticks (90 s ≈ 54 decisions).
 
 | key | meaning |
 |---|---|
-| **1** | SUCCESS — closes the DSRL episode, posts it (rewards `[-1…-1, 0]`) |
-| **0** | FAILURE — closes and posts it (rewards all `-1`) |
-| **h** | ABORT — episode dropped, never enters the buffer |
-| **s** | save the recording → runner auto-homes and pauses |
+| **1** | SUCCESS — posts to the learner (rewards `[-1…-1, 0]`), saves the recording **with** a SUCCESS marker, then homes |
+| **0** | FAILURE — posts to the learner (rewards all `-1`), saves the recording **without** the marker, then homes |
+| **h** | ABORT — dropped from the buffer *and* the recording discarded |
 | **r** | resume → opens the next DSRL episode |
 
-So each episode is: *watch → `1` or `0` → `s` → re-stage the scene → `r`*.
+So each episode is: *watch → `1` or `0` → re-stage the scene → `r`*. One key ends
+an episode; the agent drives the recorder itself.
+
+**Do not press `s` after `0`.** `s` means SUCCESS *to the recorder* and `space`
+means save-unmarked, so the old two-key flow could stamp a success marker on a
+failed episode — the buffer and the on-disk record would then disagree (seen live
+2026-09-05). The agent now emits the recorder signal from the same keypress, so
+they cannot diverge. `agent.emit_recording_triggers: false` restores manual
+recorder labelling.
 
 **Label failures with `0`, never `d`.** DSRL's reward is sparse −1 per decision, so
 failure episodes are the majority of its training signal; discarding them throws
