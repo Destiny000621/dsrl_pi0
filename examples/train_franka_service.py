@@ -144,6 +144,19 @@ class Learner:
             "state": np.asarray(state, np.float32).reshape(-1, 1)[None],
         }
         with self.lock:
+            # Only ONE episode can be live on the robot. A decision under a NEW id
+            # while other ids sit staged means the previous episode never closed —
+            # the robot session crashed or was quit mid-episode. Sessions restart
+            # their episode numbering, so without this the stale list could even
+            # collide with a reused id and silently splice two different episodes
+            # into one trajectory. Drop the stale ones; they were never labelled.
+            if episode_id not in self.staged and self.staged:
+                for stale in list(self.staged):
+                    n = len(self.staged.pop(stale))
+                    logger.warning(
+                        "episode %s: dropping %d staged decisions from stale episode %s "
+                        "(robot session ended without closing it)", episode_id, n, stale,
+                    )
             base_policy = self.grad_steps == 0
             if base_policy:
                 # Upstream's `if i == 0` branch: pure N(0,1) until the first update.

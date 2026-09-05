@@ -135,15 +135,23 @@ capped at 2700 ticks (90 s ≈ 54 decisions).
 | **h** | ABORT — dropped from the buffer *and* the recording discarded |
 | **r** | resume → opens the next DSRL episode |
 
-So each episode is: *watch → `1` or `0` → re-stage the scene → `r`*. One key ends
-an episode; the agent drives the recorder itself.
+So each episode is: *watch → `1` or `0` → re-stage the scene → `r`*. The agent
+drives the recorder at **both** edges: opening an episode starts the recording,
+and the label stops/saves it, then the runner homes and pauses for the re-stage.
 
-**Do not press `s` after `0`.** `s` means SUCCESS *to the recorder* and `space`
-means save-unmarked, so the old two-key flow could stamp a success marker on a
-failed episode — the buffer and the on-disk record would then disagree (seen live
-2026-09-05). The agent now emits the recorder signal from the same keypress, so
-they cannot diverge. `agent.emit_recording_triggers: false` restores manual
-recorder labelling.
+**Never press `space`/`s`/`d` yourself.** Both live incidents on 2026-09-05 were
+the operator and the agent sharing the recorder's toggle vocabulary: first `s`
+after `0` stamped a SUCCESS marker on a failed episode; then, in a session where
+recording had never been started, the failure label's stop-toggle *started* one
+(START_STOP is a toggle — its direction depends on state only the lifecycle can
+guarantee). With the agent owning both edges, recorder state always equals
+episode state and every toggle lands right. `1/0/h`, `[r]`, `[p]`, and `[q]` are
+the entire interface. `agent.emit_recording_triggers: false` restores the fully
+manual recorder if ever needed.
+
+`[p]` then `[r]` mid-episode is a *pause*, not an episode boundary: the episode
+(and its staged decisions) survive; one decision spans the pause with its chunk
+dropped.
 
 **Label failures with `0`, never `d`.** DSRL's reward is sparse −1 per decision, so
 failure episodes are the majority of its training signal; discarding them throws

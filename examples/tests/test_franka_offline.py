@@ -183,3 +183,19 @@ def test_save_and_restore_round_trip(tmp_path):
     batch = next(b.buffer.get_iterator(2))
     assert batch["actions"].shape == (2, v.noise_rows, 32)
     assert batch["observations"]["state"].shape[0] == 2
+
+
+def test_stale_staged_episodes_are_dropped(learner):
+    """A robot session that dies mid-episode leaves staged decisions behind, and
+    the NEXT session restarts its episode numbering. Without the guard the stale
+    list could collide with a reused id and splice two episodes into one
+    trajectory. First decision under a new id must flush anything stale."""
+    L, v = learner
+    rng = np.random.default_rng(11)
+    for _ in range(3):
+        L.infer(300, *_obs(v, rng))       # episode 300 never closes (crash)
+    assert 300 in L.staged
+    L.infer(301, *_obs(v, rng))           # new session's first decision
+    assert 300 not in L.staged, "stale episode must be flushed"
+    assert len(L.staged[301]) == 1
+    L.abort_episode(301)
