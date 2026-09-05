@@ -1,3 +1,23 @@
+> **Franka FR3 single-arm port (this branch, `Franka_single_arm`).**
+> DSRL as the full-task RL baseline on the avantbot Franka station, steering a
+> frozen `pi05_franka_double_cable_100_r6_rawrot_wcrop` checkpoint.
+> **Start here: [`DSRL_FRANKA_RUNBOOK.md`](DSRL_FRANKA_RUNBOOK.md)** — three-process
+> launch, operator keys, the 100-episode hyperparameters and why each differs from
+> upstream, and the measured VRAM/throughput budget.
+>
+> `jaxrl2/` is unmodified: the SAC learner, updaters, replay buffer and networks are
+> upstream's. Everything added lives in `examples/` (`train_franka_service.py`,
+> `launch_train_franka.py`, `scripts/run_franka.sh`, `tests/test_franka_offline.py`)
+> plus the openpi-side wire layer on
+> [`Destiny000621/openpi` branch `Franka_DSRL`](https://github.com/Destiny000621/openpi/tree/Franka_DSRL).
+>
+> Two defaults here are **measured, not chosen**: `noise_rows=50` (the full-chunk
+> latent — one tiled row puts this checkpoint 6.7x off its SFT manifold before RL
+> starts) and `state_dim=2058` (10 proprio + a measured 2048-d z_rl; upstream's
+> hardcoded 2032 is wrong).
+
+---
+
 <div align="center">
 
 # DSRL for π₀: Diffusion Steering via Reinforcement Learning
