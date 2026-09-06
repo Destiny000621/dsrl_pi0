@@ -11,10 +11,6 @@
 > plus the openpi-side wire layer on
 > [`Destiny000621/openpi` branch `Franka_DSRL`](https://github.com/Destiny000621/openpi/tree/Franka_DSRL).
 >
-> Two defaults here are **measured, not chosen**: `noise_rows=50` (the full-chunk
-> latent — one tiled row puts this checkpoint 6.7x off its SFT manifold before RL
-> starts) and `state_dim=2058` (10 proprio + a measured 2048-d z_rl; upstream's
-> hardcoded 2032 is wrong).
 
 ---
 
