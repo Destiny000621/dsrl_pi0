@@ -270,11 +270,12 @@ def test_eval_mode_never_learns_and_never_warms_up(tmp_path):
     assert e.save_all("test") == {}, "eval must never touch the training run's files"
 
 
-def test_buffer_restore_without_weights_rewarms(tmp_path):
-    """grad_steps describes the WEIGHTS. Restoring the counter without
-    --restore_path would report base_policy=False while a fresh random actor
-    drives the arm; instead the counter resets so the warmup block retrains
-    from the restored buffer (the 2026-09-05 recovery path)."""
+def test_buffer_restore_without_weights_rewarms_at_startup(tmp_path):
+    """grad_steps describes the WEIGHTS. Restoring the buffer without
+    --restore_path resets the counter AND retrains at STARTUP, before the robot
+    connects — waiting for an episode close would spend one more robot episode
+    on N(0,1) for nothing (the 2026-09-05 "I don't need 5 more base-policy
+    episodes" concern: the answer is zero, not one)."""
     from examples.train_franka_service import Learner
 
     v = _variant(tmp_path)
@@ -292,5 +293,22 @@ def test_buffer_restore_without_weights_rewarms(tmp_path):
     r = Learner(v2)
     assert len(r.buffer) == len(t.buffer)
     assert r.total_traj == 2
-    assert r.grad_steps == 0, "no weights restored -> counter must reset (re-warm)"
-    assert r.health()["base_policy"] is True
+    # warmup satisfied (n_init=1, 2 banked) + enough transitions -> startup re-warm
+    assert r.grad_steps == v2.warmup_grad_steps, "must retrain at startup"
+    assert r.health()["base_policy"] is False, "the actor must be live from episode 1"
+    noise, base = r.infer(50, *_obs(v2, rng))
+    assert not base, "no N(0,1) episode may be collected after a satisfied-warmup restore"
+    r.abort_episode(50)
+
+
+def test_stale_tmp_checkpoints_are_purged_at_startup(tmp_path):
+    """flax retention parses the step out of the NAME, so a stale half-written
+    checkpoint6680.orbax-checkpoint-tmp-0 outranks a real checkpoint0 and gets
+    the real one deleted (live 2026-09-05)."""
+    from examples.train_franka_service import Learner
+
+    junk = tmp_path / "checkpoint6680.orbax-checkpoint-tmp-0"
+    junk.mkdir()
+    (junk / "x").write_text("garbage")
+    Learner(_variant(tmp_path))
+    assert not junk.exists(), "stale tmp checkpoint must be purged before any save"

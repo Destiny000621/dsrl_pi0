@@ -125,9 +125,40 @@ class Learner:
         self.param_version = 0
         self.staged: dict[int, list] = {}   # episode_id -> [(obs_dict, noise), ...]
         self.successes: list[int] = []
+        # Purge half-written checkpoint dirs from a previous crashed/failed save.
+        # flax's keep-newest retention PARSES THE STEP OUT OF THE NAME, so a stale
+        # `checkpoint6680.orbax-checkpoint-tmp-*` outranks a real `checkpoint0` and
+        # gets the real one deleted (live 2026-09-05: the Ctrl+C save wrote
+        # checkpoint0 and retention immediately removed it in favour of garbage).
+        # Startup-only, so it can never race an in-flight save.
+        import glob  # noqa: PLC0415
+
+        for tmp in glob.glob(os.path.join(variant.outputdir, "*.orbax-checkpoint-tmp-*")):
+            logger.warning("purging stale half-written checkpoint %s", tmp)
+            import shutil  # noqa: PLC0415
+
+            shutil.rmtree(tmp, ignore_errors=True)
+
         self.wandb = _make_wandb(variant)
         if variant.restore_buffer:
             self._restore_buffer(variant.restore_buffer)
+        if (
+            not variant.eval
+            and self.grad_steps == 0
+            and self.total_traj >= variant.num_initial_traj_collect
+            and len(self.buffer) >= variant.batch_size
+        ):
+            # Enough episodes are already banked, so waiting for an episode close to
+            # fire the warmup block would spend ONE MORE robot episode on N(0,1)
+            # for no reason — at a 100-episode budget that is 1% of the science.
+            # Retrain from the restored transitions now, while the arm is idle.
+            logger.info(
+                "re-warming BEFORE the robot connects: %d grad steps from %d restored "
+                "transitions (~2 min incl. JIT) — no further N(0,1) episodes will run",
+                variant.warmup_grad_steps, len(self.buffer),
+            )
+            self._run_updates(variant.warmup_grad_steps, "startup re-warm")
+            self.save_all("startup re-warm")
 
     # -- decisions ---------------------------------------------------------
     def infer(self, episode_id: int, pixels: np.ndarray, state: np.ndarray) -> tuple[np.ndarray, bool]:
@@ -244,22 +275,7 @@ class Learner:
             if self.total_traj >= self.v.num_initial_traj_collect and self.grad_steps <= self.v.max_steps:
                 # Upstream: a big first block, then UTD * decisions per episode.
                 n_grad = self.v.warmup_grad_steps if self.grad_steps == 0 else n * self.v.multi_grad_step
-                t0 = time.time()
-                for _ in range(n_grad):
-                    info = self.agent.update(next(self.iterator))
-                    self.grad_steps += 1
-                    done += 1
-                    if self.grad_steps % self.v.log_interval == 0 and self.wandb is not None:
-                        self._log_update(info)
-                    if (
-                        self.v.checkpoint_interval > 0
-                        and self.grad_steps % self.v.checkpoint_interval == 0
-                    ):
-                        self.agent.save_checkpoint(
-                            self.v.outputdir, self.grad_steps, self.v.checkpoint_interval
-                        )
-                self.param_version += 1
-                logger.info("episode %d: %d grad steps in %.1fs", self.total_traj, done, time.time() - t0)
+                done = self._run_updates(n_grad, f"episode {self.total_traj}")
 
             self._log_episode(is_success)
             if self.v.save_every_episodes > 0 and self.total_traj % self.v.save_every_episodes == 0:
@@ -272,6 +288,23 @@ class Learner:
                 "total_traj": self.total_traj,
                 "success_rate_10": float(np.mean(self.successes[-10:])),
             }
+
+    def _run_updates(self, n_grad: int, reason: str) -> int:
+        """One gradient block. Callers hold self.lock or run single-threaded at
+        startup (plain Lock, not reentrant — never acquire here)."""
+        t0 = time.time()
+        done = 0
+        for _ in range(n_grad):
+            info = self.agent.update(next(self.iterator))
+            self.grad_steps += 1
+            done += 1
+            if self.grad_steps % self.v.log_interval == 0 and self.wandb is not None:
+                self._log_update(info)
+            if self.v.checkpoint_interval > 0 and self.grad_steps % self.v.checkpoint_interval == 0:
+                self.agent.save_checkpoint(self.v.outputdir, self.grad_steps, self.v.checkpoint_interval)
+        self.param_version += 1
+        logger.info("%s: %d grad steps in %.1fs", reason, done, time.time() - t0)
+        return done
 
     def abort_episode(self, episode_id: int) -> dict:
         """Drop an unrecoverable episode: its steps never enter the buffer.
@@ -477,14 +510,27 @@ class _Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 def main(variant) -> None:
     os.makedirs(variant.outputdir, exist_ok=True)
     _Handler.learner = Learner(variant)
+    learner = _Handler.learner
     logger.info("DSRL learner ready on :%d — waiting for the robot loop", variant.port)
     if variant.eval:
         logger.info("EVALUATION mode: actor from %s (%s), no learning, no saves",
                     variant.restore_path,
                     "deterministic mean" if variant.eval_deterministic else "sampled — upstream convention")
+    elif learner.grad_steps > 0:
+        # The flag value is NOT the state: after a restore the warmup may already be
+        # satisfied (printing "first 5 episodes run N(0,1)" here read as "5 robot
+        # episodes will be recollected" — live confusion, 2026-09-05).
+        logger.info("actor is LIVE from the first episode (grad_steps=%d, %d episodes "
+                    "banked) — no N(0,1) episodes will be collected",
+                    learner.grad_steps, learner.total_traj)
     else:
-        logger.info("base-policy phase: first %d episode(s) run N(0,1) noise (frozen pi0.5)",
-                    variant.num_initial_traj_collect)
+        remaining = max(0, variant.num_initial_traj_collect - learner.total_traj)
+        if remaining:
+            logger.info("base-policy phase: next %d episode(s) run N(0,1) noise "
+                        "(frozen pi0.5 baseline; %d already banked)",
+                        remaining, learner.total_traj)
+        else:
+            logger.info("warmup fires at the FIRST episode close; that one episode runs N(0,1)")
     server = _Server(("127.0.0.1", variant.port), _Handler)
 
     def _shutdown(signum, _frame):  # noqa: ANN001
