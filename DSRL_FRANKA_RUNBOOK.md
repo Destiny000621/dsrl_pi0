@@ -286,14 +286,27 @@ cd ~/Desktop/Haply_Franka/vendor/avantbot && pixi shell -e droid-openpi
 python -m avantbot.collect --config policy/franka_pi05_ee_fr3_dsrl_eval
 ```
 
-Operator flow is unchanged — `1`/`0` label each episode, `r` opens the next —
-and the learner prints the running tally after every episode:
+**Eval uses the RECORDER's own keys** (`agent.recorder_labels: true` in the eval
+session) — the same labeling protocol as the serve-only baseline evals, so both
+numbers are counted identically from the disk:
 
-```
-EVAL episode 12: SUCCESS | running success 7/12 = 58.3%
+| key | meaning |
+|---|---|
+| **space** | start recording / stop + save as FAILURE |
+| **s** | stop + save as SUCCESS (touches a `SUCCESS` marker file) |
+| **d** | discard (does not count) |
+| **r** | after the runner homes: next episode |
+
+In this mode the agent never touches the recorder and ignores `1/0/h`; the
+learner's own tally stays at 0 — **the disk is the ledger**:
+
+```bash
+d=~/Desktop/Haply_Franka/data_log_dsrl_eval/<session dir>
+echo "$(ls $d | grep -c episode_) episodes, $(find $d -name SUCCESS | wc -l) successes"
 ```
 
-That tally is the evaluation. Notes:
+At the 90 s cap the arm holds and the log asks for your label — press space or
+`s`, then `r`. Notes:
 
 - **Sampled, not deterministic, by default.** Upstream DSRL never evaluates with
   the actor mean — rollouts and evals both `sample_actions` — so sampling is the
@@ -302,6 +315,8 @@ That tally is the evaluation. Notes:
   different question.
 - There is **no N(0,1) warmup in eval** and nothing enters the buffer; `/healthz`
   shows `"mode": "eval"`.
+- Prefer no `[p]` mid-episode in eval: `[r]` always rolls to a fresh DSRL episode
+  in this mode (harmless for the disk tally, but a pause is not preserved).
 - To eval a mid-training snapshot, point `--restore_path` at the run dir — flax
   picks the newest `checkpoint_<step>` — while the training learner stays
   stopped (one GPU, one serve, and the two learners must not share :9111).
