@@ -144,6 +144,17 @@ class Learner:
             "state": np.asarray(state, np.float32).reshape(-1, 1)[None],
         }
         with self.lock:
+            if self.v.eval:
+                # Evaluation: the trained actor drives EVERY decision. Sampling vs
+                # mean is a flag; sampling is upstream's convention (their rollouts
+                # and evals both sample -- there is no deterministic real-robot
+                # eval anywhere in dsrl_pi0).
+                if self.v.eval_deterministic:
+                    noise = np.reshape(self.agent.eval_actions(obs), (self.v.noise_rows, 32))
+                else:
+                    noise = np.reshape(self.agent.sample_actions(obs), (self.v.noise_rows, 32))
+                self.staged.setdefault(episode_id, []).append((None, None))  # decision count only
+                return noise.astype(np.float32), False
             # Only ONE episode can be live on the robot. A decision under a NEW id
             # while other ids sit staged means the previous episode never closed —
             # the robot session crashed or was quit mid-episode. Sessions restart
@@ -176,6 +187,20 @@ class Learner:
     def close_episode(self, episode_id: int, is_success: bool, pixels, state, env_steps: int) -> dict:
         with self.lock:
             steps = self.staged.pop(episode_id, [])
+            if self.v.eval:
+                self.total_traj += 1
+                self.total_env_steps += int(env_steps)
+                self.successes.append(int(bool(is_success)))
+                rate = float(np.mean(self.successes))
+                logger.info("EVAL episode %d: %s | running success %d/%d = %.1f%%",
+                            self.total_traj, "SUCCESS" if is_success else "FAILURE",
+                            sum(self.successes), len(self.successes), 100 * rate)
+                if self.wandb is not None:
+                    self.wandb.log({"eval/is_success": int(bool(is_success)),
+                                    "eval/success_rate": rate,
+                                    "eval/episodes": self.total_traj}, step=self.total_traj)
+                return {"decisions": len(steps), "grad_steps": 0, "eval": True,
+                        "episodes": self.total_traj, "success_rate": rate}
             if not steps:
                 return {"decisions": 0, "grad_steps": 0, "buffer_size": len(self.buffer), "note": "empty"}
 
@@ -263,6 +288,7 @@ class Learner:
 
     def health(self) -> dict:
         return {
+            "mode": "eval" if self.v.eval else "train",
             "total_traj": self.total_traj,
             "grad_steps": self.grad_steps,
             "buffer_size": len(self.buffer),
@@ -281,6 +307,8 @@ class Learner:
         episodes: those transitions cost robot time and cannot be regenerated.
         Called periodically, and on SIGINT/SIGTERM so Ctrl+C is not destructive.
         """
+        if self.v.eval:
+            return {}  # nothing changed; never overwrite the training run's files
         out = {}
         try:
             self.agent.save_checkpoint(self.v.outputdir, self.grad_steps, self.v.checkpoint_interval)
@@ -325,9 +353,25 @@ class Learner:
             with open(counters) as f:
                 c = json.load(f)
             self.total_traj = c["total_traj"]
-            self.grad_steps = c["grad_steps"]
             self.total_env_steps = c["total_env_steps"]
             self.successes = c["successes"]
+            if self.v.restore_path:
+                self.grad_steps = c["grad_steps"]
+            elif c["grad_steps"] > 0:
+                # grad_steps describes the WEIGHTS. Restoring the counter without
+                # the weights would report base_policy=False while a freshly
+                # initialised actor drives the arm. Instead re-fire the warmup
+                # block: the buffer holds the paid-for transitions, so the first
+                # /episode retrains actor/critic from them (~2 min), which is the
+                # best reconstruction available when a checkpoint is missing
+                # (live 2026-09-05: the relative-path bug had eaten every weight
+                # save, so this exact recovery was needed).
+                logger.warning(
+                    "buffer has %d grad steps of history but no --restore_path: "
+                    "weights are fresh. grad_steps reset to 0 -> the next episode "
+                    "close runs the full warmup block to retrain from the buffer.",
+                    c["grad_steps"],
+                )
         logger.info("restored buffer: %d transitions, %d episodes, %d grad steps",
                     len(self.buffer), self.total_traj, self.grad_steps)
 
@@ -434,8 +478,13 @@ def main(variant) -> None:
     os.makedirs(variant.outputdir, exist_ok=True)
     _Handler.learner = Learner(variant)
     logger.info("DSRL learner ready on :%d — waiting for the robot loop", variant.port)
-    logger.info("base-policy phase: first %d episode(s) run N(0,1) noise (frozen pi0.5)",
-                variant.num_initial_traj_collect)
+    if variant.eval:
+        logger.info("EVALUATION mode: actor from %s (%s), no learning, no saves",
+                    variant.restore_path,
+                    "deterministic mean" if variant.eval_deterministic else "sampled — upstream convention")
+    else:
+        logger.info("base-policy phase: first %d episode(s) run N(0,1) noise (frozen pi0.5)",
+                    variant.num_initial_traj_collect)
     server = _Server(("127.0.0.1", variant.port), _Handler)
 
     def _shutdown(signum, _frame):  # noqa: ANN001

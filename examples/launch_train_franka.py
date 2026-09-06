@@ -76,6 +76,18 @@ def build_variant(parser: argparse.ArgumentParser):
     parser.add_argument("--num_initial_traj_collect", default=5, type=int,
                         help="episodes collected under N(0,1) before the first update; "
                              "these are the frozen-pi0.5 baseline row")
+    parser.add_argument("--eval", default=0, type=int,
+                        help="EVALUATION mode: the trained actor drives every decision "
+                             "(no N(0,1) warmup), and nothing is learned or stored -- no "
+                             "buffer inserts, no gradient steps, no saves. Requires "
+                             "--restore_path. Robot side is unchanged: 1/0 still label "
+                             "the outcome, which is what gets counted.")
+    parser.add_argument("--eval_deterministic", default=0, type=int,
+                        help="eval only: use the actor MEAN instead of sampling. Upstream "
+                             "DSRL never evaluates deterministically (rollouts and evals "
+                             "both sample, jaxrl2/agents/agent.py), so 0 is the "
+                             "convention-faithful default; 1 answers a different question "
+                             "(the policy's mode, not its behaviour).")
 
     # ---- bookkeeping ------------------------------------------------------
     parser.add_argument("--prefix", default="dsrl_franka_cable", type=str)
@@ -136,6 +148,15 @@ def build_variant(parser: argparse.ArgumentParser):
         variant["outputdir"] = os.path.join(
             os.environ.get("EXP", "./logs/dsrl_franka"), f"{variant.prefix}_seed{variant.seed}"
         )
+    # flax's checkpoints.save_checkpoint refuses relative paths ("Checkpoint path
+    # should be absolute") -- with a relative EXP the buffer saved but the WEIGHTS
+    # silently did not (live 2026-09-05: warning per save, zero checkpoints on disk).
+    variant["outputdir"] = os.path.abspath(variant.outputdir)
+    if variant.restore_path:
+        variant["restore_path"] = os.path.abspath(variant.restore_path)
+    if variant.eval and not variant.restore_path:
+        raise SystemExit("--eval requires --restore_path: evaluating a random actor is "
+                         "not an evaluation of anything.")
     return variant
 
 

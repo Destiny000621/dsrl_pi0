@@ -162,11 +162,14 @@ def test_save_and_restore_round_trip(tmp_path):
 
     before = a.health()
 
+    # Restore WEIGHTS + buffer together — the counter travels with the weights
+    # (restoring the buffer alone now deliberately resets grad_steps to re-warm;
+    # that path has its own test below).
     sys.argv = [
         "test", "--warmup_grad_steps", "4", "--multi_grad_step", "1",
         "--num_initial_traj_collect", "1", "--batch_size", "4", "--max_steps", "2000",
         "--wandb_project", "", "--outputdir", str(tmp_path),
-        "--restore_buffer", str(buf),
+        "--restore_buffer", str(buf), "--restore_path", str(tmp_path),
     ]
     try:
         v2 = build_variant(argparse.ArgumentParser())
@@ -199,3 +202,95 @@ def test_stale_staged_episodes_are_dropped(learner):
     assert 300 not in L.staged, "stale episode must be flushed"
     assert len(L.staged[301]) == 1
     L.abort_episode(301)
+
+
+def _variant(tmp_path, *extra):
+    from examples.launch_train_franka import build_variant
+
+    argv = sys.argv
+    sys.argv = [
+        "test", "--warmup_grad_steps", "4", "--multi_grad_step", "1",
+        "--num_initial_traj_collect", "1", "--batch_size", "4", "--max_steps", "2000",
+        "--wandb_project", "", "--outputdir", str(tmp_path), *extra,
+    ]
+    try:
+        return build_variant(argparse.ArgumentParser())
+    finally:
+        sys.argv = argv
+
+
+def test_outputdir_is_absolute(tmp_path):
+    """flax refuses relative checkpoint paths — with a relative EXP the buffer
+    saved but the WEIGHTS silently did not (live 2026-09-05, zero checkpoints
+    after 6680 grad steps)."""
+    import examples.launch_train_franka as l
+
+    argv = sys.argv
+    sys.argv = ["test", "--wandb_project", "", "--outputdir", "logs/rel/x"]
+    try:
+        v = l.build_variant(argparse.ArgumentParser())
+    finally:
+        sys.argv = argv
+    assert os.path.isabs(v.outputdir)
+
+
+def test_eval_requires_restore_path(tmp_path):
+    with pytest.raises(SystemExit, match="restore_path"):
+        _variant(tmp_path, "--eval", "1")
+
+
+def test_eval_mode_never_learns_and_never_warms_up(tmp_path):
+    """Eval: the actor answers every decision (no N(0,1) warmup) and nothing is
+    inserted, updated, or saved — the running success count IS the output."""
+    from examples.train_franka_service import Learner
+
+    # train 2 tiny episodes so a real checkpoint exists to restore
+    v = _variant(tmp_path)
+    t = Learner(v)
+    rng = np.random.default_rng(5)
+    for ep in (1, 2):
+        for _ in range(3):
+            t.infer(ep, *_obs(v, rng))
+        px, st = _obs(v, rng)
+        t.close_episode(ep, ep == 2, px, st, 150)
+    t.agent.save_checkpoint(v.outputdir, t.grad_steps, 1)
+
+    ve = _variant(tmp_path, "--eval", "1", "--restore_path", str(tmp_path))
+    e = Learner(ve)
+    M = ve.train_kwargs["action_magnitude"]
+    for _ in range(3):
+        noise, base = e.infer(7, *_obs(ve, rng))
+        assert not base, "eval must never fall back to N(0,1)"
+        assert np.abs(noise).max() <= M + 1e-4, "eval noise must come from the actor"
+    px, st = _obs(ve, rng)
+    out = e.close_episode(7, True, px, st, 150)
+    assert out.get("eval") and out["decisions"] == 3 and out["success_rate"] == 1.0
+    assert e.health()["mode"] == "eval"
+    assert e.grad_steps == 0 and len(e.buffer) == 0, "eval inserted or learned"
+    assert e.save_all("test") == {}, "eval must never touch the training run's files"
+
+
+def test_buffer_restore_without_weights_rewarms(tmp_path):
+    """grad_steps describes the WEIGHTS. Restoring the counter without
+    --restore_path would report base_policy=False while a fresh random actor
+    drives the arm; instead the counter resets so the warmup block retrains
+    from the restored buffer (the 2026-09-05 recovery path)."""
+    from examples.train_franka_service import Learner
+
+    v = _variant(tmp_path)
+    t = Learner(v)
+    rng = np.random.default_rng(6)
+    for ep in (1, 2):
+        for _ in range(3):
+            t.infer(ep, *_obs(v, rng))
+        px, st = _obs(v, rng)
+        t.close_episode(ep, False, px, st, 150)
+    assert t.grad_steps > 0
+    t.save_all("test")
+
+    v2 = _variant(tmp_path, "--restore_buffer", str(tmp_path / "replay_buffer.pkl"))
+    r = Learner(v2)
+    assert len(r.buffer) == len(t.buffer)
+    assert r.total_traj == 2
+    assert r.grad_steps == 0, "no weights restored -> counter must reset (re-warm)"
+    assert r.health()["base_policy"] is True

@@ -268,7 +268,47 @@ robot time and cannot be regenerated. (The restore here uses plain `pickle.load`
 rather than jaxrl2's `ReplayBuffer.restore`, which reads a `pickle.dump` file
 with `np.load(..., allow_pickle=True)[0]` and is marked "todo test this".)
 
-## 6. Failure modes worth recognising
+## 6. Evaluating the trained policy
+
+Same three processes; only the learner's flags and the session file change.
+Training and eval never share a config.
+
+```bash
+# terminal 2 — learner in EVAL mode (no learning, no saves; actor drives all)
+cd ~/Desktop/dsrl_pi0
+D=$(pwd)/logs/dsrl_franka/dsrl_franka_cable_seed0
+XLA_PYTHON_CLIENT_PREALLOCATE=false ~/venvs/dsrl/bin/python \
+  -m examples.launch_train_franka --eval 1 --restore_path $D \
+  --prefix dsrl_franka_eval
+
+# terminal 3 — eval session (recordings go to data_log_dsrl_eval)
+cd ~/Desktop/Haply_Franka/vendor/avantbot && pixi shell -e droid-openpi
+python -m avantbot.collect --config policy/franka_pi05_ee_fr3_dsrl_eval
+```
+
+Operator flow is unchanged — `1`/`0` label each episode, `r` opens the next —
+and the learner prints the running tally after every episode:
+
+```
+EVAL episode 12: SUCCESS | running success 7/12 = 58.3%
+```
+
+That tally is the evaluation. Notes:
+
+- **Sampled, not deterministic, by default.** Upstream DSRL never evaluates with
+  the actor mean — rollouts and evals both `sample_actions` — so sampling is the
+  convention-faithful number to report against other DSRL results.
+  `--eval_deterministic 1` reports the policy's *mode* instead, which is a
+  different question.
+- There is **no N(0,1) warmup in eval** and nothing enters the buffer; `/healthz`
+  shows `"mode": "eval"`.
+- To eval a mid-training snapshot, point `--restore_path` at the run dir — flax
+  picks the newest `checkpoint_<step>` — while the training learner stays
+  stopped (one GPU, one serve, and the two learners must not share :9111).
+- The frozen-pi0.5 **baseline row needs no eval mode**: it is episodes 1–5 of
+  training (pure N(0,1)), or a plain `franka_pi05_ee_fr3_wcrop` eval session.
+
+## 7. Failure modes worth recognising
 
 | symptom | cause |
 |---|---|
@@ -277,4 +317,6 @@ with `np.load(..., allow_pickle=True)[0]` and is marked "todo test this".)
 | `state is N-D but the learner was built for 2058` | z_rl width changed (different serve flags). Re-measure with G3, relaunch with `--state_dim` |
 | episode logged as ABORTED without you pressing `h` | a learner call failed mid-episode; the agent fell back to `N(0,1)` and refuses to train on latents the actor did not choose. Check terminal 2 |
 | OOM on the learner | it needs only ~1.5 GB, so something else filled the card. Stop SubRL's SAM3 server (2.8 GB), or start the serve with `XLA_PYTHON_CLIENT_MEM_FRACTION=0.55` |
-| first episode's update block takes ~45 s | one-time JIT compilation; later blocks are ~10 s |
+| "Waiting for the learner's update block" for ~2 min after episode 5 | the one-time 5000-step warmup + JIT (measured live: 101 s); later blocks are 2–10 s. The agent logs progress every 15 s |
+| `Checkpoint path should be absolute` warnings, no `checkpoint_*` on disk | you are on a build older than 2026-09-05 — the launcher now abspaths `EXP`. Weights from such a run are unrecoverable, but the buffer is not: resume with `--restore_buffer` alone and the counter resets so the warmup block **retrains actor/critic from the buffer** (~2 min) |
+| resumed with `--restore_buffer` but not `--restore_path`, and it re-runs the 5000-step block | intentional: grad_steps describes the *weights*; without them the counter resets and the buffer retrains a fresh actor rather than silently driving the arm with random weights labelled as trained |

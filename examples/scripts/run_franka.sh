@@ -12,7 +12,10 @@
 set -euo pipefail
 
 proj_name=DSRL_pi0_Franka
-export EXP=${EXP:-./logs/$proj_name}
+# Keep EXP identical to the launcher's own default so a manual
+# `python -m examples.launch_train_franka` resume finds the SAME
+# checkpoints/buffer this script wrote (two dirs diverged live 2026-09-05).
+export EXP=${EXP:-./logs/dsrl_franka}
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 # The pi0.5 serve on the same GPU preallocates ~24.6 GB of a 32.6 GB card; this
 # learner peaks at ~1.5 GB, so take it on demand instead of reserving a fraction.
