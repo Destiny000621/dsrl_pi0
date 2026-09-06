@@ -289,11 +289,16 @@ def test_buffer_restore_without_weights_rewarms_at_startup(tmp_path):
     assert t.grad_steps > 0
     t.save_all("test")
 
-    v2 = _variant(tmp_path, "--restore_buffer", str(tmp_path / "replay_buffer.pkl"))
+    # batch_size DELIBERATELY larger than the 6-transition buffer: jaxrl2 samples
+    # with replacement, and gating the re-warm on len(buffer) >= batch_size
+    # silently skipped it at 122 < 256 (live 2026-09-05), pushing the 5000-step
+    # block into the operator's episode close — 370 s of robot idle.
+    v2 = _variant(tmp_path, "--restore_buffer", str(tmp_path / "replay_buffer.pkl"),
+                  "--batch_size", "64")
     r = Learner(v2)
     assert len(r.buffer) == len(t.buffer)
     assert r.total_traj == 2
-    # warmup satisfied (n_init=1, 2 banked) + enough transitions -> startup re-warm
+    # warmup satisfied (n_init=1, 2 banked) -> startup re-warm even with a tiny buffer
     assert r.grad_steps == v2.warmup_grad_steps, "must retrain at startup"
     assert r.health()["base_policy"] is False, "the actor must be live from episode 1"
     noise, base = r.infer(50, *_obs(v2, rng))

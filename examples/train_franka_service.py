@@ -146,7 +146,12 @@ class Learner:
             not variant.eval
             and self.grad_steps == 0
             and self.total_traj >= variant.num_initial_traj_collect
-            and len(self.buffer) >= variant.batch_size
+            # len > 0, NOT >= batch_size: jaxrl2 samples with replacement, so small
+            # buffers train fine. The >= batch_size version silently skipped the
+            # re-warm at 122 < 256 (live 2026-09-05), which pushed the 5000-step
+            # block back into the operator's episode-1 close — 370 s of robot
+            # idle and a timed-out episode POST.
+            and len(self.buffer) > 0
         ):
             # Enough episodes are already banked, so waiting for an episode close to
             # fire the warmup block would spend ONE MORE robot episode on N(0,1)
@@ -292,6 +297,7 @@ class Learner:
     def _run_updates(self, n_grad: int, reason: str) -> int:
         """One gradient block. Callers hold self.lock or run single-threaded at
         startup (plain Lock, not reentrant — never acquire here)."""
+        logger.info("%s: running %d grad steps ...", reason, n_grad)
         t0 = time.time()
         done = 0
         for _ in range(n_grad):
@@ -497,9 +503,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self._send(self.learner.abort_episode(int(payload["episode_id"])))
             else:
                 self.send_error(404)
+        except (BrokenPipeError, ConnectionResetError):
+            # The client gave up waiting (its timeout) and hung up before the reply.
+            # The WORK was still done — for /episode the insert + update block
+            # completed; only the response was lost. One line, not a traceback storm.
+            logger.warning("client hung up before the reply on %s (its timeout was "
+                           "shorter than the update block) — the request WAS processed",
+                           self.path)
         except Exception as exc:  # noqa: BLE001
             logger.exception("request failed")
-            self._send({"error": repr(exc)}, code=500)
+            try:
+                self._send({"error": repr(exc)}, code=500)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
 
 class _Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
