@@ -182,6 +182,17 @@ def test_save_and_restore_round_trip(tmp_path):
     assert after["total_traj"] == before["total_traj"]
     assert after["grad_steps"] == before["grad_steps"]
     assert after["success_rate_10"] == before["success_rate_10"]
+    # THE WEIGHTS must actually be the trained ones, not a fresh init that a
+    # prefix-mismatched restore silently left in place (jaxrl2 saves prefix
+    # "checkpoint", flax restores prefix "checkpoint_" by default — live
+    # 2026-09-05 a whole session trained from re-initialised weights while
+    # logging "restored from ..."). Deterministic eval_actions on identical
+    # observations must agree between the original and the restored agent.
+    probe = {k: np.asarray(v[:1]) for k, v in next(b.buffer.get_iterator(1))["observations"].items()}
+    np.testing.assert_allclose(
+        np.asarray(a.agent.eval_actions(probe)), np.asarray(b.agent.eval_actions(probe)),
+        rtol=1e-5, err_msg="restored actor differs from the saved one — restore no-opped",
+    )
     # A restored buffer must still yield a usable batch.
     batch = next(b.buffer.get_iterator(2))
     assert batch["actions"].shape == (2, v.noise_rows, 32)
@@ -257,6 +268,9 @@ def test_eval_mode_never_learns_and_never_warms_up(tmp_path):
 
     ve = _variant(tmp_path, "--eval", "1", "--restore_path", str(tmp_path))
     e = Learner(ve)
+    # grad_steps now reflects the restored checkpoint's own step (weights truth)
+    steps_at_start = e.grad_steps
+    assert steps_at_start == t.grad_steps, "restore must adopt the checkpoint's step"
     M = ve.train_kwargs["action_magnitude"]
     for _ in range(3):
         noise, base = e.infer(7, *_obs(ve, rng))
@@ -266,7 +280,7 @@ def test_eval_mode_never_learns_and_never_warms_up(tmp_path):
     out = e.close_episode(7, True, px, st, 150)
     assert out.get("eval") and out["decisions"] == 3 and out["success_rate"] == 1.0
     assert e.health()["mode"] == "eval"
-    assert e.grad_steps == 0 and len(e.buffer) == 0, "eval inserted or learned"
+    assert e.grad_steps == steps_at_start and len(e.buffer) == 0, "eval inserted or learned"
     assert e.save_all("test") == {}, "eval must never touch the training run's files"
 
 
@@ -317,3 +331,13 @@ def test_stale_tmp_checkpoints_are_purged_at_startup(tmp_path):
     (junk / "x").write_text("garbage")
     Learner(_variant(tmp_path))
     assert not junk.exists(), "stale tmp checkpoint must be purged before any save"
+
+
+def test_restore_path_without_checkpoints_fails_loudly(tmp_path):
+    """A restore that finds nothing must refuse to run, not proceed on fresh
+    weights while logging "restored from ..." (the 2026-09-05 silent no-op —
+    in eval mode that would have "evaluated" a random actor)."""
+    from examples.train_franka_service import Learner
+
+    with pytest.raises(SystemExit, match="no checkpoint"):
+        Learner(_variant(tmp_path, "--restore_path", str(tmp_path)))

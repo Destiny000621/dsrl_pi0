@@ -101,9 +101,31 @@ class Learner:
         if kwargs.pop("cosine_decay", False):
             kwargs["decay_steps"] = variant.max_steps
         self.agent = PixelSACLearner(variant.seed, sample_obs, sample_action, **kwargs)
-        if variant.restore_path:  # upstream references variant.restore_path but never
-            logger.info("restoring actor/critic from %s", variant.restore_path)  # adds the flag (B10a)
-            self.agent.restore_checkpoint(variant.restore_path)
+        if variant.restore_path:
+            # NOT agent.restore_checkpoint(dir): jaxrl2 SAVES with prefix
+            # "checkpoint" but flax's restore defaults to prefix "checkpoint_",
+            # so a directory restore finds nothing, prints "restored from ..."
+            # anyway, and the run continues on FRESH weights (live 2026-09-05:
+            # a whole session trained from re-initialised weights, and eval
+            # would silently "evaluate" a random actor the same way). Resolve
+            # the newest checkpoint file ourselves and hand the FILE over —
+            # flax restores an explicit file path regardless of prefix.
+            from flax.training import checkpoints as _ckpts  # noqa: PLC0415
+
+            latest = _ckpts.latest_checkpoint(variant.restore_path, prefix="checkpoint")
+            if latest is None:
+                raise SystemExit(
+                    f"--restore_path {variant.restore_path}: no checkpoint* files there. "
+                    "Refusing to run on fresh weights while claiming a restore."
+                )
+            self.agent.restore_checkpoint(latest)
+            # grad_steps describes the weights — take it from the checkpoint's own
+            # name, not counters.json (they can disagree after a partial session).
+            digits = "".join(ch for ch in os.path.basename(latest) if ch.isdigit())
+            self.grad_steps_from_ckpt = int(digits or 0)
+            logger.info("restored weights: %s (grad_steps=%d)", latest, self.grad_steps_from_ckpt)
+        else:
+            self.grad_steps_from_ckpt = None
 
         capacity = int(2 * variant.max_steps // variant.multi_grad_step)
         self.buffer = ReplayBuffer(self.observation_space, self.action_space, capacity)
@@ -119,7 +141,8 @@ class Learner:
 
         self.jax = jax
         self.rng = jax.random.PRNGKey(variant.seed + 1)
-        self.grad_steps = 0          # upstream's `i`
+        # upstream's `i`; when weights were restored, start from THEIR step.
+        self.grad_steps = self.grad_steps_from_ckpt or 0
         self.total_traj = 0
         self.total_env_steps = 0
         self.param_version = 0
@@ -395,7 +418,7 @@ class Learner:
             self.total_env_steps = c["total_env_steps"]
             self.successes = c["successes"]
             if self.v.restore_path:
-                self.grad_steps = c["grad_steps"]
+                self.grad_steps = self.grad_steps_from_ckpt
             elif c["grad_steps"] > 0:
                 # grad_steps describes the WEIGHTS. Restoring the counter without
                 # the weights would report base_policy=False while a freshly
